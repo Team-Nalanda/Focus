@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to verify the user is logged in and owns the document
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Root collection 'User' (singular, per ER diagram)
+    match /User/{userId} {
+      // Allow read/write only if the authenticated user's UID matches the document ID
+      allow read, write: if isOwner(userId);
+      
+      // Cascading rule for all nested subcollections (AnchorGoal, Device, Session, Activity)
+      // This enforces strict data isolation for the entire hierarchy under the user.
+      match /{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}
