@@ -8,59 +8,24 @@ import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { Session, Activity, FocusAnalysis } from '@/types/firestore';
 import { Clock, CheckCircle2, XCircle, Layout, ArrowRight } from 'lucide-react';
 
-// Mock data to ensure beautiful UI even without DB seeded
-const mockSessions = [
-  {
-    id: 'session-1',
-    Status: 'Completed',
-    Focus_Level: 94,
-    Start_Time: new Date(Date.now() - 3600000),
-    End_Time: new Date(Date.now() - 1200000),
-    FocusAnalysis: {
-      Behavior_Pattern: 'High concentration with minimal context switching.',
-      Recommendation: 'Perfect execution. Consider taking a 15min break.',
-      Focus_Score: 94,
-    },
-    activities: [
-      { id: 'act-1', App_Name: 'VS Code', Activity_Type: 'Productive', duration: '45m' },
-      { id: 'act-2', App_Name: 'Chrome (StackOverflow)', Activity_Type: 'Productive', duration: '12m' },
-    ]
-  },
-  {
-    id: 'session-2',
-    Status: 'Abandoned',
-    Focus_Level: 42,
-    Start_Time: new Date(Date.now() - 86400000),
-    End_Time: new Date(Date.now() - 84000000),
-    FocusAnalysis: {
-      Behavior_Pattern: 'Frequent app switching detected early in session.',
-      Recommendation: 'Use website blockers during the first 20 minutes.',
-      Focus_Score: 42,
-    },
-    activities: [
-      { id: 'act-3', App_Name: 'Twitter', Activity_Type: 'Distracting', duration: '15m' },
-      { id: 'act-4', App_Name: 'VS Code', Activity_Type: 'Neutral', duration: '5m' },
-    ]
-  }
-];
+// removed mockSessions for live data
 
 export default function TasksPage() {
   const { user } = useAuth();
-  const [sessions, setSessions] = useState<any[]>(mockSessions);
-  const [selectedSession, setSelectedSession] = useState<any | null>(mockSessions[0]);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [sessionActivities, setSessionActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // In a real scenario, we would fetch User/{uid}/Session and associated Activity docs here.
-    // We are defaulting to mockSessions if DB is empty to showcase the design.
-    async function fetchData() {
+    async function fetchSessions() {
       if (!user) return;
       try {
-        const q = query(collection(db, 'User', user.uid, 'Session'), orderBy('Start_Time', 'desc'), limit(10));
+        const q = query(collection(db, 'User', user.uid, 'Session'), orderBy('Start_Time', 'desc'));
         const snap = await getDocs(q);
-        if (!snap.empty) {
-          const dbSessions = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setSessions(dbSessions);
+        const dbSessions = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Session));
+        setSessions(dbSessions);
+        if (dbSessions.length > 0 && !selectedSession) {
           setSelectedSession(dbSessions[0]);
         }
       } catch (error) {
@@ -69,8 +34,24 @@ export default function TasksPage() {
         setLoading(false);
       }
     }
-    fetchData();
+    fetchSessions();
   }, [user]);
+
+  useEffect(() => {
+    async function fetchActivities() {
+       if (!user || !selectedSession?.id) return;
+       try {
+         const actQuery = query(collection(db, 'User', user.uid, 'Activity'), orderBy('Start_Time', 'desc'));
+         const snap = await getDocs(actQuery);
+         // Filter natively as we don't know if Session_ID index is built
+         const acts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity)).filter(a => a.Session_ID === selectedSession.id);
+         setSessionActivities(acts);
+       } catch(e) {
+         console.error(e);
+       }
+    }
+    fetchActivities();
+  }, [user, selectedSession]);
 
   return (
     <AppLayout>
@@ -101,7 +82,7 @@ export default function TasksPage() {
                   }`}
                 >
                   <div className="flex justify-between items-center w-full">
-                    <span className="text-sm font-medium">Session {session.id.slice(-4)}</span>
+                    <span className="text-sm font-medium">Session {session.id?.slice(-4) || '0000'}</span>
                     {session.Status === 'Completed' ? (
                       <CheckCircle2 size={16} className="text-emerald-400" />
                     ) : (
@@ -111,8 +92,8 @@ export default function TasksPage() {
                   <div className="flex justify-between text-xs text-neutral-500">
                     <span>Score: {session.Focus_Level || session.FocusAnalysis?.Focus_Score || 0}%</span>
                     <span>
-                      {session.Start_Time instanceof Date 
-                        ? session.Start_Time.toLocaleDateString()
+                      {(session.Start_Time as any)?.toDate 
+                        ? (session.Start_Time as any).toDate().toLocaleDateString()
                         : 'Recent'}
                     </span>
                   </div>
@@ -130,7 +111,14 @@ export default function TasksPage() {
                 <div className="space-y-2">
                   <div className="flex items-center space-x-3 text-sm text-neutral-400">
                     <Clock size={16} />
-                    <span>Duration: ~ 45 minutes</span>
+                    <span>Duration: {(() => {
+                      const st = (selectedSession.Start_Time as any)?.toDate?.();
+                      const et = (selectedSession.End_Time as any)?.toDate?.();
+                      if (st && et) {
+                        return `${Math.round((et.getTime() - st.getTime()) / 60000)} minutes`;
+                      }
+                      return 'Active / Unknown';
+                    })()}</span>
                     <span className="text-neutral-700">•</span>
                     <span>Status: <span className={selectedSession.Status === 'Completed' ? 'text-emerald-400' : 'text-red-400'}>{selectedSession.Status}</span></span>
                   </div>
@@ -158,8 +146,8 @@ export default function TasksPage() {
                 <div className="space-y-4">
                   <h3 className="text-sm uppercase tracking-widest text-neutral-500 font-medium">Application Context</h3>
                   <div className="grid gap-3">
-                    {selectedSession.activities ? (
-                      selectedSession.activities.map((act: any) => (
+                    {sessionActivities.length > 0 ? (
+                      sessionActivities.map((act) => (
                         <div key={act.id} className="flex items-center justify-between p-4 bg-neutral-900/40 border border-neutral-800 rounded-lg">
                           <div className="flex items-center space-x-4">
                             <div className={`p-2 rounded-md ${act.Activity_Type === 'Productive' ? 'bg-emerald-500/10 text-emerald-400' : act.Activity_Type === 'Distracting' ? 'bg-red-500/10 text-red-400' : 'bg-neutral-500/10 text-neutral-400'}`}>
@@ -170,7 +158,14 @@ export default function TasksPage() {
                               <p className="text-xs text-neutral-500">{act.Activity_Type}</p>
                             </div>
                           </div>
-                          <span className="text-sm text-neutral-400">{act.duration}</span>
+                          <span className="text-sm text-neutral-400">
+                            {(() => {
+                               const ast = (act.Start_Time as any)?.toDate?.();
+                               const aet = (act.End_Time as any)?.toDate?.();
+                               if (ast && aet) return `${Math.round((aet.getTime() - ast.getTime()) / 60000)}m`;
+                               return '< 1m';
+                            })()}
+                          </span>
                         </div>
                       ))
                     ) : (

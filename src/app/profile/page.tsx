@@ -1,21 +1,79 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { useAuth } from '@/components/AuthProvider';
-import { User as UserIcon, Mail, Activity, Flame, ShieldAlert, Award } from 'lucide-react';
+import { User as UserIcon, Mail, Activity as ActivityIcon, Flame, ShieldAlert, Award } from 'lucide-react';
+
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
+import { Session, Activity } from '@/types/firestore';
 
 export default function ProfilePage() {
   const { user } = useAuth();
   
-  // Static mockup for analytics based on the prompt's request
-  const profileStats = {
-    totalFocusHours: 142,
-    peakDistractionApp: 'Twitter',
-    averageFocusTime: '45m',
-    topFocusTime: '10:00 AM',
-    distractionResistance: 84 // out of 100
-  };
+  const [profileStats, setProfileStats] = useState({
+    totalFocusHours: 0,
+    peakDistractionApp: '-',
+    averageFocusTime: '0m',
+    topFocusTime: '-',
+    distractionResistance: 0
+  });
+
+  useEffect(() => {
+    async function loadProfileMetrics() {
+      if (!user) return;
+      try {
+        const fetchSessions = await getDocs(collection(db, 'User', user.uid, 'Session'));
+        const fetchActivities = await getDocs(collection(db, 'User', user.uid, 'Activity'));
+        
+        const sessions = fetchSessions.docs.map(d => d.data() as Session);
+        const activities = fetchActivities.docs.map(d => d.data() as Activity);
+
+        // 1. Total Focus Hours
+        let totalMs = 0;
+        sessions.forEach(s => {
+          const st = (s.Start_Time as any)?.toDate?.() || new Date();
+          const et = (s.End_Time as any)?.toDate?.() || null;
+          if (et) totalMs += (et.getTime() - st.getTime());
+        });
+        const totalHours = Math.floor(totalMs / 3600000);
+        
+        // 2. Average focus time
+        const avgMs = sessions.length > 0 ? Math.round(totalMs / sessions.length) : 0;
+        const avgFocusMins = Math.floor(avgMs / 60000);
+
+        // 3. Peak distraction app
+        const distApps: Record<string, number> = {};
+        let topDistApp = 'None Detected';
+        let maxDist = 0;
+        activities.filter(a => a.Activity_Type === 'Distracting').forEach(a => {
+           distApps[a.App_Name] = (distApps[a.App_Name] || 0) + 1;
+           if (distApps[a.App_Name] > maxDist) {
+             maxDist = distApps[a.App_Name];
+             topDistApp = a.App_Name;
+           }
+        });
+
+        // 4. Distraction Resistance (Ratio of Productive vs Distracting Activities)
+        const totalActs = activities.length;
+        const distCount = activities.filter(a => a.Activity_Type === 'Distracting').length;
+        const resistance = totalActs > 0 ? Math.round(((totalActs - distCount) / totalActs) * 100) : 100;
+
+        setProfileStats({
+          totalFocusHours: totalHours,
+          peakDistractionApp: topDistApp,
+          averageFocusTime: `${avgFocusMins}m`,
+          topFocusTime: 'Morning', // Placeholder proxy algorithm string
+          distractionResistance: resistance
+        });
+
+      } catch (error) {
+        console.error("Failed to load profile metrics", error);
+      }
+    }
+    loadProfileMetrics();
+  }, [user]);
 
   return (
     <AppLayout>
@@ -62,7 +120,7 @@ export default function ProfilePage() {
                     <span className="text-neutral-500">{profileStats.topFocusTime}</span>
                   </div>
                   <div className="w-full h-2 bg-neutral-900 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 rounded-full w-4/5"></div>
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: '80%' }}></div>
                   </div>
                 </div>
                 
@@ -72,7 +130,7 @@ export default function ProfilePage() {
                     <span className="text-neutral-500">{profileStats.averageFocusTime} per session</span>
                   </div>
                   <div className="w-full h-2 bg-neutral-900 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 rounded-full w-3/5"></div>
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: '60%' }}></div>
                   </div>
                 </div>
                 
@@ -98,7 +156,7 @@ export default function ProfilePage() {
                     <span className="text-neutral-500">{profileStats.distractionResistance}%</span>
                   </div>
                   <div className="w-full h-2 bg-neutral-900 rounded-full overflow-hidden">
-                     <div className="h-full bg-red-500 rounded-full w-[84%]"></div>
+                     <div className="h-full bg-red-500 rounded-full transition-all" style={{ width: `${profileStats.distractionResistance}%` }}></div>
                   </div>
                 </div>
 

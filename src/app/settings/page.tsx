@@ -1,9 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { useAuth } from '@/components/AuthProvider';
 import { Save, Bell, Shield, User as UserIcon } from 'lucide-react';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { User } from '@/types/firestore';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -11,14 +14,48 @@ export default function SettingsPage() {
   const [notificationPref, setNotificationPref] = useState('Important');
   const [sensitivityLevel, setSensitivityLevel] = useState('Medium');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const handleSave = () => {
+  useEffect(() => {
+    async function loadSettings() {
+      if (!user) return;
+      try {
+        const userDocRef = doc(db, 'User', user.uid);
+        const docSnap = await getDoc(userDocRef);
+        if (docSnap.exists()) {
+          const userData = docSnap.data() as User;
+          if (userData.Settings) {
+             setNotificationPref(userData.Settings.Notification_Preference || 'Important');
+             setSensitivityLevel(userData.Settings.Sensitivity_Level || 'Medium');
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load settings", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadSettings();
+  }, [user]);
+
+  const handleSave = async () => {
+    if (!user) return;
     setSaving(true);
-    // Simulate API call to update Firebase Settings Document
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      const userDocRef = doc(db, 'User', user.uid);
+      await updateDoc(userDocRef, {
+        Settings: {
+          Notification_Preference: notificationPref,
+          Sensitivity_Level: sensitivityLevel
+        }
+      });
       alert('Settings saved successfully.');
-    }, 1000);
+    } catch (error) {
+      console.error("Error saving settings", error);
+      alert('Failed to save settings.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
