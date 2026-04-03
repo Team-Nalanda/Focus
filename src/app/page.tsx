@@ -56,16 +56,21 @@ export default function Dashboard() {
 	const [loadingDb, setLoadingDb] = useState(true);
 	const [startingExtension, setStartingExtension] = useState(false);
 	const [chartData, setChartData] = useState<any[]>([]);
-	const [liveActivity, setLiveActivity] = useState<any[]>([]);
-	const [currentApp, setCurrentApp] = useState<any>(null);
-	const [isLiveSessionActive, setIsLiveSessionActive] = useState(false);
+	const [isSessionLive, setIsSessionLive] = useState(false);
 	const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-	const [isAnalyzing, setIsAnalyzing] = useState(false);
-	const [liveTip, setLiveTip] = useState<string | null>(null);
 
 	useEffect(() => {
 		async function fetchData() {
 			if (!user) return;
+			
+			// 1. RTDB Monitor for Live Session State
+			const liveRef = ref(rtdb, `users/${user.uid}/liveSession`);
+			const unsubscribeRtdb = onValue(liveRef, (snapshot) => {
+				const data = snapshot.val();
+				setIsSessionLive(!!data?.active);
+				setActiveSessionId(data?.firestoreSessionId || null);
+			});
+
 			try {
 				const q = query(
 					collection(db, 'User', user.uid, 'Session'),
@@ -134,139 +139,11 @@ export default function Dashboard() {
 			} finally {
 				setLoadingDb(false);
 			}
+
+			return () => unsubscribeRtdb();
 		}
 		fetchData();
 	}, [user]);
-
-	useEffect(() => {
-		if (!user) return;
-
-		// Listen for live session status and activities in RTDB
-		const sessionRef = ref(rtdb, `users/${user.uid}/liveSession`);
-		const unsubscribe = onValue(sessionRef, (snapshot) => {
-			const data = snapshot.val();
-			if (data) {
-				setIsLiveSessionActive(data.active || false);
-				setCurrentApp(data.currentApp || null);
-				setActiveSessionId(data.firestoreSessionId || null);
-
-				if (data.activities) {
-					const acts = Object.values(data.activities).reverse();
-					setLiveActivity(acts);
-				} else {
-					setLiveActivity([]);
-				}
-			} else {
-				setIsLiveSessionActive(false);
-				setCurrentApp(null);
-				setActiveSessionId(null);
-				setLiveActivity([]);
-			}
-		});
-
-		return () => unsubscribe();
-	}, [user]);
-
-	useEffect(() => {
-		if (isLiveSessionActive && liveActivity.length > 0 && liveActivity.length % 5 === 0) {
-			async function fetchTip() {
-				try {
-					const response = await fetch('/api/analyze', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ activities: liveActivity, type: 'tip' })
-					});
-					const data = await response.json();
-					if (data.tip) {
-						setLiveTip(data.tip);
-						// Hide tip after some time
-						setTimeout(() => setLiveTip(null), 10000);
-					}
-				} catch (e) {
-					console.error("Live tip error:", e);
-				}
-			}
-			fetchTip();
-		}
-	}, [liveActivity.length, isLiveSessionActive]);
-
-	const simulateLiveActivity = async () => {
-		if (!user) return;
-
-		const apps = ['VS Code', 'Chrome', 'Slack', 'Figma', 'Spotify', 'Terminal'];
-		const randomApp = apps[Math.floor(Math.random() * apps.length)];
-		const sessionRef = ref(rtdb, `users/${user.uid}/liveSession`);
-
-		await set(sessionRef, {
-			active: true,
-			currentApp: {
-				name: randomApp,
-				startTime: Date.now(),
-			},
-		});
-
-		// Push to activity history in RTDB
-		const activityHistoryRef = ref(
-			rtdb,
-			`users/${user.uid}/liveSession/activities`,
-		);
-		const newActivityRef = push(activityHistoryRef);
-		await set(newActivityRef, {
-			name: randomApp,
-			timestamp: Date.now(),
-		});
-	};
-
-	const stopLiveSimulation = async () => {
-		if (!user) return;
-		setIsAnalyzing(true);
-
-		try {
-			// 1. Finalize current Firestore session if we have an ID
-			if (activeSessionId) {
-				const sessionDocRef = doc(
-					db,
-					'User',
-					user.uid,
-					'Session',
-					activeSessionId,
-				);
-				await updateDoc(sessionDocRef, {
-					Status: 'Completed',
-					End_Time: serverTimestamp(),
-					Updated_At: serverTimestamp(),
-				});
-
-				// 2. Trigger AI Analysis on the collected app logs
-				const response = await fetch('/api/analyze', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ activities: liveActivity }),
-				});
-
-				const analysis = await response.json();
-
-				// 3. Update Firestore with AI results
-				await updateDoc(sessionDocRef, {
-					FocusAnalysis: {
-						...analysis,
-						Analyzed_At: serverTimestamp(),
-					},
-				});
-			}
-
-			// 4. Clear RTDB live state
-			const rtdbRef = ref(rtdb, `users/${user.uid}/liveSession`);
-			await set(rtdbRef, null);
-
-			setActiveSessionId(null);
-			alert('Session analyzed by Gemma AI and saved to your history!');
-		} catch (e) {
-			console.error('Stop session error:', e);
-		} finally {
-			setIsAnalyzing(false);
-		}
-	};
 
 	const handleStartExtension = async () => {
 		setStartingExtension(true);
@@ -295,12 +172,84 @@ export default function Dashboard() {
 				activities: {},
 			});
 
+			// 3. Sync Session ID to extension directly
+			const EXTENSION_ID = 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
+			if (typeof window !== 'undefined' && (window as any).chrome?.runtime) {
+				try {
+					(window as any).chrome.runtime.sendMessage(EXTENSION_ID, {
+						action: 'SESSION_SYNC',
+						sessionId: sessionRef.id,
+						active: true
+					});
+				} catch (e) {
+					console.warn('Extension sync failed (optional):', e);
+				}
+			}
+
 			setStartingExtension(false);
 		} catch (e) {
 			console.error('Start session error:', e);
 			setStartingExtension(false);
 		}
 	};
+
+	const handleStopSession = async () => {
+		if (!user || !activeSessionId) return;
+		setStartingExtension(true); // Loading state
+
+		try {
+			// 1. Fetch activities for the current session to analyze
+			const activitiesSnapshot = await getDocs(
+				collection(db, 'User', user.uid, 'Session', activeSessionId, 'Activity')
+			);
+			const activities = activitiesSnapshot.docs.map(doc => doc.data());
+
+			// 2. Analyze using DeepSeek via API
+			let analysis = { Focus_Score: 70, Behavior_Pattern: "Good job.", Recommendation: "Keep it up." };
+			if (activities.length > 0) {
+				const response = await fetch('/api/analyze', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ activities })
+				});
+				if (response.ok) analysis = await response.json();
+			}
+
+			// 3. Update Firestore Session with results
+			const sessionRef = doc(db, 'User', user.uid, 'Session', activeSessionId);
+			await updateDoc(sessionRef, {
+				Status: 'Completed',
+				End_Time: serverTimestamp(),
+				Updated_At: serverTimestamp(),
+				Focus_Level: analysis.Focus_Score,
+				FocusAnalysis: analysis
+			});
+
+			// 4. Clear RTDB Live State
+			const liveRef = ref(rtdb, `users/${user.uid}/liveSession`);
+			await set(liveRef, { active: false });
+
+			// 5. Notify extension to stop tracking
+			const EXTENSION_ID = 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
+			if (typeof window !== 'undefined' && (window as any).chrome?.runtime) {
+				try {
+					(window as any).chrome.runtime.sendMessage(EXTENSION_ID, {
+						action: 'SESSION_STOP',
+						active: false
+					});
+				} catch (e) {
+					console.warn('Extension stop sync failed (optional):', e);
+				}
+			}
+
+			setStartingExtension(false);
+			// Refresh local session list if needed or let data effect handle it
+		} catch (e) {
+			console.error("Stop session error:", e);
+			setStartingExtension(false);
+		}
+	};
+
 
 	const completedSessions = sessions.filter((s) => s.Status === 'Completed');
 
@@ -326,60 +275,6 @@ export default function Dashboard() {
 	return (
 		<AppLayout>
 			<div className="flex flex-col h-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-				{/* Realtime Live Monitor - Top of Dashboard */}
-				{isLiveSessionActive && (
-					<div className="w-full bg-neutral-900/50 border border-emerald-500/30 rounded-2xl p-6 backdrop-blur-md animate-in zoom-in-95 duration-500">
-						<div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-							<div className="flex items-center gap-4">
-								<div className="relative">
-									<div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center border border-emerald-500/50">
-										<Monitor size={24} className="text-emerald-400" />
-									</div>
-									<div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-ping"></div>
-									<div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full"></div>
-								</div>
-								<div>
-									<h2 className="text-lg font-medium text-white flex items-center gap-2">
-										Live Session Active
-									</h2>
-									<p className="text-neutral-400 text-sm font-light">
-										Currently focused:{' '}
-										<span className="text-emerald-400 font-medium">
-											{currentApp?.name || 'Waiting...'}
-										</span>
-									</p>
-								</div>
-							</div>
-
-							{liveTip && (
-								<div className="flex-1 max-w-sm px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl animate-in fade-in zoom-in-95 slide-in-from-top-2 duration-500">
-									<div className="flex items-start gap-3">
-										<Sparkles size={14} className="text-emerald-400 mt-1 shrink-0" />
-										<p className="text-xs text-emerald-100 font-light leading-relaxed italic">
-											{liveTip}
-										</p>
-									</div>
-								</div>
-							)}
-
-							<button
-								onClick={stopLiveSimulation}
-								disabled={isAnalyzing}
-								className="px-4 py-2 bg-neutral-800 hover:bg-red-900/20 hover:text-red-400 border border-neutral-700 hover:border-red-500/50 rounded-lg text-sm transition-all active:scale-95 disabled:opacity-50"
-							>
-								{isAnalyzing ? (
-									<div className="flex items-center gap-2">
-										<Loader2 size={14} className="animate-spin" />
-										Analyzing...
-									</div>
-								) : (
-									'Stop Tracking'
-								)}
-							</button>
-						</div>
-					</div>
-				)}
-
 				{/* Header Section */}
 				<div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
 					<div>
@@ -396,26 +291,37 @@ export default function Dashboard() {
 					</div>
 
 					<div className="flex items-center gap-3">
-						<button
-							onClick={handleStartExtension}
-							disabled={startingExtension}
-							className="group flex items-center space-x-3 px-6 py-3 bg-white text-black rounded-lg font-medium tracking-wide hover:bg-neutral-200 transition-all active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
-						>
-							{startingExtension ? (
-								<div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>
-							) : (
-								<Play size={18} className="fill-black" />
-							)}
-							<span>
-								{startingExtension ? 'Connecting...' : 'Start Extension'}
-							</span>
-						</button>
-						<button
-							onClick={simulateLiveActivity}
-							className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-medium tracking-wide hover:bg-emerald-500 transition-all active:scale-[0.98]"
-						>
-							Log Live Action
-						</button>
+						{isSessionLive ? (
+							<button
+								onClick={handleStopSession}
+								disabled={startingExtension}
+								className="group flex items-center space-x-3 px-6 py-3 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg font-medium tracking-wide hover:bg-red-500/20 transition-all active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100 shadow-[0_0_20px_-10px_rgba(239,68,68,0.5)]"
+							>
+								{startingExtension ? (
+									<div className="w-5 h-5 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin"></div>
+								) : (
+									<div className="w-2.5 h-2.5 bg-red-500 rounded-sm animate-pulse mr-1"></div>
+								)}
+								<span>
+									{startingExtension ? 'Finalizing Analysis...' : 'Stop Focus Session'}
+								</span>
+							</button>
+						) : (
+							<button
+								onClick={handleStartExtension}
+								disabled={startingExtension}
+								className="group flex items-center space-x-3 px-6 py-3 bg-white text-black rounded-lg font-medium tracking-wide hover:bg-neutral-200 transition-all active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
+							>
+								{startingExtension ? (
+									<div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>
+								) : (
+									<Play size={18} className="fill-black" />
+								)}
+								<span>
+									{startingExtension ? 'Connecting...' : 'Start Extension'}
+								</span>
+							</button>
+						)}
 					</div>
 				</div>
 

@@ -4,9 +4,9 @@ import React, { useEffect, useState } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { useAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { Session, Activity } from '@/types/firestore';
-import { Clock, CheckCircle2, XCircle, Layout, Brain, Sparkles, ShieldCheck, Zap } from 'lucide-react';
+import { Clock, CheckCircle2, XCircle, Layout, Brain, Sparkles, ShieldCheck, Zap, Trash2 } from 'lucide-react';
 
 export default function TasksPage() {
   const { user } = useAuth();
@@ -14,6 +14,19 @@ export default function TasksPage() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [sessionActivities, setSessionActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user || !confirm('Are you sure you want to delete this session?')) return;
+
+    try {
+      await deleteDoc(doc(db, 'User', user.uid, 'Session', sessionId));
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      if (selectedSession?.id === sessionId) setSelectedSession(null);
+    } catch (error) {
+      console.error('Error deleting session:', error);
+    }
+  };
 
   useEffect(() => {
     async function fetchSessions() {
@@ -39,14 +52,16 @@ export default function TasksPage() {
     async function fetchActivities() {
        if (!user || !selectedSession?.id) return;
        try {
-         const actQuery = query(collection(db, 'User', user.uid, 'Activity'), orderBy('Start_Time', 'desc'));
+         // Query from the new sub-collection path
+         const actQuery = query(
+           collection(db, 'User', user.uid, 'Session', selectedSession.id, 'Activity'), 
+           orderBy('Start_Time', 'desc')
+         );
          const snap = await getDocs(actQuery);
-         const acts = snap.docs
-            .map(doc => ({ id: doc.id, ...doc.data() } as Activity))
-            .filter(a => a.Session_ID === selectedSession.id);
+         const acts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
          setSessionActivities(acts);
        } catch(e) {
-         console.error(e);
+         console.error("Error fetching session activities:", e);
        }
     }
     fetchActivities();
@@ -82,7 +97,7 @@ export default function TasksPage() {
                 <button
                   key={session.id}
                   onClick={() => setSelectedSession(session)}
-                  className={`flex flex-col items-start p-5 border-l-2 transition-all hover:bg-neutral-900/50 ${
+                  className={`group flex flex-col items-start p-5 border-l-2 transition-all hover:bg-neutral-900/50 ${
                     selectedSession?.id === session.id 
                       ? 'border-white bg-neutral-900/80' 
                       : 'border-transparent text-neutral-400'
@@ -90,15 +105,24 @@ export default function TasksPage() {
                 >
                   <div className="flex justify-between items-center w-full mb-1">
                     <span className="text-sm font-medium text-white">Session {sessions.length - index}</span>
-                    {session.Status === 'Completed' ? (
-                      <CheckCircle2 size={16} className="text-emerald-400" />
-                    ) : session.Status === 'Active' ? (
-                      <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                    ) : (
-                      <XCircle size={16} className="text-red-400/50" />
-                    )}
+                    <div className="flex items-center gap-2">
+                      {session.Status === 'Completed' ? (
+                        <CheckCircle2 size={16} className="text-emerald-400" />
+                      ) : session.Status === 'Active' ? (
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                      ) : (
+                        <XCircle size={16} className="text-red-400/50" />
+                      )}
+                      <button 
+                      onClick={(e) => session.id && handleDeleteSession(session.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-white/10 rounded-md transition-all text-neutral-500 hover:text-red-400 active:scale-95"
+                      title="Delete Session"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-xs text-neutral-500 w-full text-left">
+                  <div className="flex justify-between text-[10px] text-neutral-500 w-full text-left uppercase tracking-wider font-medium">
                     <span>Score: {session.FocusAnalysis?.Focus_Score || session.Focus_Level || 0}%</span>
                     <span>
                       {(session.Start_Time as any)?.toDate 
@@ -178,7 +202,7 @@ export default function TasksPage() {
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 text-white">
                         <ShieldCheck size={18} className="text-emerald-500/70" />
-                        <p className="text-sm font-medium">Coach's Insight</p>
+                        <p className="text-sm font-medium">Insights</p>
                       </div>
                       <p className="text-neutral-400 font-light text-sm leading-relaxed min-h-[4rem]">
                         {selectedSession.FocusAnalysis?.Recommendation || 

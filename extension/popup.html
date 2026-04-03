@@ -6,7 +6,24 @@
     <title>FocusFlow AI</title>
     <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="auth-locked"> <!-- Add class to toggle blur -->
+
+    <!-- Login Required Overlay -->
+    <div id="authOverlay" class="auth-overlay hidden">
+        <div class="auth-modalSection shadow-xl">
+            <div class="brand" style="margin-bottom: 20px; justify-content: center;">
+                <span class="brand-name">FOCUS<span class="brand-dot">.</span></span>
+            </div>
+            <h2 style="font-size: 16px; margin-bottom: 10px; color: white; font-weight: 500;">Authentication Required</h2>
+            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.5;">
+                Please login to the Focus website at <span style="color: var(--accent);">localhost:3000</span> to synchronize your account and unlock the extension.
+            </p>
+            <div class="status-badge idle" style="justify-content: center; width: 100%; padding: 12px;">
+                <span class="status-dot animate-pulse"></span>
+                <span>Waiting for website sync...</span>
+            </div>
+        </div>
+    </div>
 
     <!-- Top Bar -->
     <div class="top-bar">
@@ -101,14 +118,17 @@
         <div class="card" style="display: flex; flex-direction: column; gap: 14px;">
             <div class="section-label">API Configuration</div>
 
-            <div class="setting-group">
-                <label for="apiKeyInput">Gemini API Key</label>
-                <input type="password" id="apiKeyInput" class="input-field" placeholder="AIzaSy...">
+            <div class="setting-group" style="margin-top: 10px; padding: 10px; background: var(--bg-card); border: 1px dashed var(--border); border-radius: 8px;">
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Universal Auth Status</div>
+                <div id="authStatusDisplay" style="font-size: 13px; color: var(--text-muted); display: flex; items-center; gap: 6px;">
+                    <span class="status-dot" id="authDot" style="width: 8px; height: 8px; margin-top: 4px;"></span>
+                    <span id="authText">Not Authenticated</span>
+                </div>
             </div>
 
             <div class="setting-group">
-                <label for="firebaseConfigInput">Firebase Config (JSON)</label>
-                <textarea id="firebaseConfigInput" rows="6" class="input-field" placeholder='{ "apiKey": "...", "projectId": "..." }'></textarea>
+                <label for="uidInput">User ID (Auto-syncs from Site)</label>
+                <input type="text" id="uidInput" class="input-field" placeholder="User UID...">
             </div>
 
             <button id="saveSettingsBtn" class="btn btn-primary w-full">Save Settings</button>

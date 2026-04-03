@@ -2,9 +2,9 @@ export async function getLiveFocusTip(activities: any[]) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return "Focus on the task at hand.";
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemma-2-9b-it:generateContent?key=${apiKey}`;
+  const model = "gemini-1.5-flash-latest";
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  // Use only the last 3-5 activities for a "mini-insight"
   const recentLog = activities
     .slice(0, 5)
     .map((a) => a.name)
@@ -41,67 +41,56 @@ export async function analyzeSessionActivity(activities: any[]) {
     throw new Error("GEMINI_API_KEY is not defined in environment variables.");
   }
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemma-2-9b-it:generateContent?key=${apiKey}`;
+  const model = "gemini-1.5-flash-latest";
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   // Format activities for the prompt
   const activityLog = activities
-    .map((a) => `${a.name || a.App_Name} (${a.Activity_Type || 'Unknown'})`)
-    .join(", ");
+    .map((a) => `${a.name || a.App_Name} [${a.Activity_Type || 'Neutral'}]`)
+    .join(" -> ");
 
   const prompt = `
-    You are a high-performance focus coach for software engineers and knowledge workers. 
-    Analyze the following chronological sequence of application usage from a user's focus session:
-    [${activityLog}]
-
-    Based on this data, provide a structured focus report in VALID JSON format with exactly these fields:
+    Analyze this focus session: [${activityLog}]
+    Respond with ONLY a VALID JSON object with: 
     {
-      "Focus_Score": <number between 0 and 100 assessing their overall flow and productivity>,
-      "Behavior_Pattern": "<Evaluate their flow entry. Mention context switches and the ratio of productive vs distracting apps.>",
-      "Recommendation": "<One specific, high-leverage piece of advice to improve their focus (e.g. 'Your context switching to Slack after 15 mins suggests you should set notification snoozing during deep work blocks.')>"
+      "Focus_Score": <0-100>,
+      "Behavior_Pattern": "<Advanced psychological analysis: Identify 'Flow Entry' and 'Distraction Clusters'.>",
+      "Recommendation": "<One specific, actionable strategy.>"
     }
-
-    Return ONLY the JSON object. Be concise but insightful.
+    No extra text, no markdown.
   `;
 
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
+        contents: [{ parts: [{ text: prompt }] }],
       }),
     });
 
     if (!response.ok) {
       const err = await response.text();
-      console.error("Gemma API Error:", err);
-      throw new Error("Failed to communicate with Gemma AI.");
+      console.error("Gemini Engine Error:", err);
+      throw new Error("Intelligence Engine unavailable.");
     }
 
     const data = await response.json();
     const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!textResponse) {
-      throw new Error("Empty response from Gemma AI.");
+      throw new Error("Gemini returned an empty intelligence report.");
     }
 
-    return JSON.parse(textResponse);
+    // Robust parsing: strip potential markdown code blocks
+    const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanJson);
   } catch (error) {
-    console.error("AI Analysis Error:", error);
-    // Return a fallback analysis if AI fails
+    console.error("AI Analysis Execution Error:", error);
     return {
       Focus_Score: 70,
-      Behavior_Pattern: "Data recording completed. Automatic analysis partially unavailable.",
-      Recommendation: "Keep tracking your sessions for more accurate insights."
+      Behavior_Pattern: "Data recording completed. Automatic behavioral analysis is partially unavailable.",
+      Recommendation: "Keep maintaining steady blocks of deep work for accurate future reports."
     };
   }
 }

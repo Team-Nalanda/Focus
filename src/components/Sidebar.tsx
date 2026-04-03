@@ -2,14 +2,29 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
-import { LayoutDashboard, CheckSquare, User as UserIcon, Settings, LogOut } from 'lucide-react';
+import { rtdb } from '@/lib/firebase';
+import { ref, onValue } from 'firebase/database';
+import { LayoutDashboard, CheckSquare, User as UserIcon, Settings, LogOut, Activity } from 'lucide-react';
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
+
+  const [isLive, setIsLive] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!user) return;
+    const sessionRef = ref(rtdb, `users/${user.uid}/liveSession`);
+    const unsubscribe = onValue(sessionRef, (snapshot) => {
+      const data = snapshot.val();
+      setIsLive(!!data?.active);
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   const navItems = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+    { name: 'Activity', href: '/activity', icon: Activity, live: isLive },
     { name: 'Tasks', href: '/tasks', icon: CheckSquare },
     { name: 'Profile', href: '/profile', icon: UserIcon },
     { name: 'Settings', href: '/settings', icon: Settings },
@@ -28,14 +43,19 @@ export default function Sidebar() {
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 ${
+                className={`flex items-center justify-between px-4 py-3 rounded-lg transition-colors duration-200 ${
                   isActive 
                     ? 'bg-neutral-800 text-white font-medium' 
                     : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
                 }`}
               >
-                <Icon size={20} strokeWidth={isActive ? 2 : 1.5} />
-                <span>{item.name}</span>
+                <div className="flex items-center space-x-3">
+                  <Icon size={20} strokeWidth={isActive ? 2 : 1.5} />
+                  <span>{item.name}</span>
+                </div>
+                {item.live && (
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                )}
               </Link>
             );
           })}

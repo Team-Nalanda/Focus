@@ -14,44 +14,108 @@ const FirebaseHelper = {
         return Promise.resolve(true);
     },
 
-    async logDistraction(taskName, distractedUrl) {
-        if (!this._config || !this._config.projectId) {
-            console.error('Firebase config missing or projectId undefined. Initialize first.');
-            return;
-        }
+    // ── Firestore: Create Session ──
+    async createSession(uid, sessionData) {
+        if (!this._config.projectId) return null;
 
         const projectId = this._config.projectId;
-        const collection = 'user_distractions';
-        
-        // Firestore REST API Endpoint to add a document
-        const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}`;
+        const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/User/${uid}/Session`;
 
         const docData = {
             fields: {
-                timestamp: { timestampValue: new Date().toISOString() },
-                taskName: { stringValue: taskName },
-                distractedUrl: { stringValue: distractedUrl }
+                Status: { stringValue: "Active" },
+                Focus_Level: { integerValue: "100" },
+                Start_Time: { timestampValue: new Date().toISOString() },
+                Created_At: { timestampValue: new Date().toISOString() },
+                Updated_At: { timestampValue: new Date().toISOString() },
+                Task: { stringValue: sessionData.task || "" }
             }
         };
 
         try {
-            const response = await fetch(endpoint, {
+            const resp = await fetch(endpoint, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(docData)
             });
+            const data = await resp.json();
+            // The document name is "projects/.../databases/(default)/documents/User/.../Session/SESSION_ID"
+            const nameParts = data.name.split('/');
+            return nameParts[nameParts.length - 1];
+        } catch (err) {
+            console.error('Firestore Create Session Error:', err);
+            return null;
+        }
+    },
 
-            if (!response.ok) {
-                console.error('Failed to log distraction to Firestore.', await response.text());
-                return false;
+    // ── Firestore: Permanent Activity Log ──
+    async logActivity(uid, activity) {
+        if (!this._config.projectId || !activity.sessionId) {
+            console.warn('Skipping Firestore log: Missing projectId or sessionId.');
+            return false;
+        }
+
+        const projectId = this._config.projectId;
+        const sessionId = activity.sessionId;
+        const collectionPath = `User/${uid}/Session/${sessionId}/Activity`;
+        const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collectionPath}`;
+
+        const docData = {
+            fields: {
+                App_Name: { stringValue: activity.appName },
+                Activity_Type: { stringValue: activity.type || "Neutral" },
+                Start_Time: { timestampValue: new Date().toISOString() },
+                End_Time: { timestampValue: new Date().toISOString() } // Close immediately for simple logs
             }
-            
-            console.log('Distraction logged successfully to Firestore REST API');
+        };
+
+        try {
+            await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(docData)
+            });
             return true;
         } catch (err) {
-            console.error('Error hitting Firestore REST endpoint:', err);
+            console.error('Firestore Log Error:', err);
+            return false;
+        }
+    },
+
+    // ── RTDB: Real-time Live Monitor Sync ──
+    async updateLiveSession(uid, data) {
+        if (!this._config.databaseURL) return;
+        const endpoint = `${this._config.databaseURL}/users/${uid}/liveSession.json`;
+        
+        try {
+            await fetch(endpoint, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return true;
+        } catch (err) {
+            console.error('RTDB Sync Error:', err);
+            return false;
+        }
+    },
+
+    async pushLiveActivity(uid, activityName) {
+        if (!this._config.databaseURL) return;
+        const endpoint = `${this._config.databaseURL}/users/${uid}/liveSession/activities.json`;
+        
+        try {
+            await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: activityName,
+                    timestamp: Date.now()
+                })
+            });
+            return true;
+        } catch (err) {
+            console.error('RTDB Push Activity Error:', err);
             return false;
         }
     }

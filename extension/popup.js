@@ -8,6 +8,7 @@ let isPaused = false;
 document.addEventListener('DOMContentLoaded', () => {
 
     // ── DOM refs ──
+    const authOverlay = document.getElementById('authOverlay');
     const homeView = document.getElementById('homeView');
     const sessionView = document.getElementById('sessionView');
     const settingsView = document.getElementById('settingsView');
@@ -27,12 +28,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusText = document.getElementById('statusText');
 
     // Settings refs
-    const apiKeyInput = document.getElementById('apiKeyInput');
-    const firebaseConfigInput = document.getElementById('firebaseConfigInput');
+    const uidInput = document.getElementById('uidInput');
+    const authText = document.getElementById('authText');
+    const authDot = document.getElementById('authDot');
     const saveSettingsBtn = document.getElementById('saveSettingsBtn');
     const settingsStatus = document.getElementById('settingsStatus');
 
-    // AI decide toggle
     const aiDecideTime = document.getElementById('aiDecideTime');
     const timePickerContainer = document.getElementById('timePickerContainer');
 
@@ -48,18 +49,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const target = tab.dataset.tab;
             navTabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
-
-            // Hide all views
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
 
             if (target === 'focus') {
-                // Show either home or session depending on state
                 chrome.storage.local.get(['sessionActive'], (data) => {
-                    if (data.sessionActive) {
-                        sessionView.classList.add('active');
-                    } else {
-                        homeView.classList.add('active');
-                    }
+                    if (data.sessionActive) sessionView.classList.add('active');
+                    else homeView.classList.add('active');
                 });
             } else if (target === 'settings') {
                 settingsView.classList.add('active');
@@ -67,30 +62,50 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // ── Load settings ──
-    chrome.storage.local.get(['apiKey', 'firebaseConfig'], (result) => {
-        if (result.apiKey) apiKeyInput.value = result.apiKey;
-        if (result.firebaseConfig) firebaseConfigInput.value = JSON.stringify(result.firebaseConfig, null, 2);
+    // ── Load settings & Auth Status ──
+    function loadSettings() {
+        chrome.storage.local.get(['uid'], (result) => {
+            if (result.uid) {
+                uidInput.value = result.uid;
+                authText.textContent = "Authenticated via Site";
+                authText.style.color = "var(--accent)";
+                authDot.style.background = "var(--accent)";
+                
+                // Unlock UI
+                authOverlay.classList.add('hidden');
+                document.body.classList.remove('auth-locked');
+            } else {
+                authText.textContent = "Not Authenticated. Login on Focus Site.";
+                authText.style.color = "var(--text-muted)";
+                authDot.style.background = "#444";
+                
+                // Lock UI
+                authOverlay.classList.remove('hidden');
+                document.body.classList.add('auth-locked');
+            }
+        });
+    }
+    loadSettings();
+
+    // Listen for Auth & Session Updates from Background
+    chrome.runtime.onMessage.addListener((message) => {
+        if (message.action === 'AUTH_UPDATED') {
+            loadSettings();
+        } else if (message.action === 'SESSION_STOPPED_REMOTE') {
+            console.log("Session stopped remotely.");
+            finishSession(); // Reset local UI and state
+        } else if (message.action === 'SESSION_STARTED_REMOTE') {
+            console.log("Session started remotely.");
+            checkActiveSession(); // Reload state and show timer
+        }
     });
 
     // ── Save settings ──
     saveSettingsBtn.addEventListener('click', () => {
-        let firebaseConfigObj = null;
-        const fbVal = firebaseConfigInput.value.trim();
-        if (fbVal) {
-            try {
-                firebaseConfigObj = JSON.parse(fbVal);
-            } catch (e) {
-                showSettingsStatus('Invalid JSON format.', 'error');
-                return;
-            }
-        }
-        const newSettings = {};
-        if (apiKeyInput.value.trim()) newSettings.apiKey = apiKeyInput.value.trim();
-        if (firebaseConfigObj) newSettings.firebaseConfig = firebaseConfigObj;
-
-        chrome.storage.local.set(newSettings, () => {
+        const uid = uidInput.value.trim();
+        chrome.storage.local.set({ uid }, () => {
             showSettingsStatus('Settings saved!', 'success');
+            loadSettings();
         });
     });
 
@@ -125,68 +140,72 @@ document.addEventListener('DOMContentLoaded', () => {
         const task = taskInput.value.trim();
         if (!task) return alert("Please describe what you're working on.");
 
-        const letAiDecide = aiDecideTime.checked;
-        const hours = parseInt(hoursInput.value, 10) || 0;
-        const mins = parseInt(minutesInput.value, 10) || 0;
-        const manualTotalMinutes = (hours * 60) + mins;
+        chrome.storage.local.get(['uid'], async (storage) => {
+            if (!storage.uid) return; // Should be locked anyway
 
-        showLoading(true);
+            showLoading(true);
+            let tip = '';
+            let aiDuration = 25;
+            try {
+                const stats = await GeminiHelper.analyzeTaskDuration(task);
+                tip = stats.tip || '';
+                aiDuration = stats.duration || 25;
+            } catch (e) {
+                console.warn('AI analysis failed, continuing with manual time.', e);
+            }
 
-        let tip = '';
-        let aiDuration = 25;
-        try {
-            const stats = await GeminiHelper.analyzeTaskDuration(task);
-            tip = stats.tip || '';
-            aiDuration = stats.duration || 25;
-        } catch (e) {
-            console.warn('AI analysis failed, continuing with manual time.', e);
-        }
+            const minutes = aiDecideTime.checked ? aiDuration : (parseInt(minutesInput.value) + (parseInt(hoursInput.value) * 60) || 25);
+            totalSeconds = minutes * 60;
+            remainingSeconds = totalSeconds;
+            activeTaskDisplay.textContent = task;
+            if (tip) aiTipDisplay.textContent = `"${tip}"`;
 
-        // Use AI duration if toggled, manual if set, fallback 25
-        const minutes = letAiDecide ? aiDuration : (manualTotalMinutes > 0 ? manualTotalMinutes : 25);
-
-        totalSeconds = minutes * 60;
-        remainingSeconds = totalSeconds;
-        activeTaskDisplay.textContent = task;
-        if (tip) aiTipDisplay.textContent = `"${tip}"`;
-
-        const sessionEndTime = Date.now() + (remainingSeconds * 1000);
-
-        chrome.storage.local.set({
-            sessionActive: true,
-            currentTask: task,
-            totalSeconds: totalSeconds,
-            sessionEndTime: sessionEndTime,
-            aiTip: tip ? `"${tip}"` : ''
-        }, () => {
-            setActiveState(true);
-            showSessionView();
-            startTimerInterval();
-            showLoading(false);
-            chrome.runtime.sendMessage({ action: "SESSION_STARTED", task: task });
+            const sessionStartTime = Date.now();
+            const sessionEndTime = sessionStartTime + (remainingSeconds * 1000);
+            
+            chrome.storage.local.set({
+                sessionActive: true,
+                currentTask: task,
+                totalSeconds: totalSeconds,
+                sessionStartTime: sessionStartTime,
+                sessionEndTime: sessionEndTime,
+                aiTip: tip ? `"${tip}"` : ''
+            }, () => {
+                setActiveState(true);
+                showSessionView();
+                startTimerInterval();
+                showLoading(false);
+                
+                // Sync to RTDB
+                chrome.runtime.sendMessage({ 
+                    action: "SESSION_STARTED", 
+                    task: task,
+                    startTime: sessionStartTime,
+                    endTime: sessionEndTime
+                });
+            });
         });
     });
 
-    // ── Pause ──
     pauseBtn.addEventListener('click', () => {
         isPaused = !isPaused;
         if (isPaused) {
             clearInterval(timerInterval);
             pauseIconContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
-            chrome.storage.local.set({ sessionActive: false });
             chrome.runtime.sendMessage({ action: "SESSION_PAUSED" });
             setActiveState(false);
         } else {
             const newEndTime = Date.now() + (remainingSeconds * 1000);
-            chrome.storage.local.set({ sessionActive: true, sessionEndTime: newEndTime });
+            chrome.storage.local.set({ sessionEndTime: newEndTime });
             startTimerInterval();
             pauseIconContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
-            chrome.runtime.sendMessage({ action: "SESSION_RESUMED" });
             setActiveState(true);
+            
+            // Sync updated end time
+            chrome.runtime.sendMessage({ action: "SESSION_RESUMED", endTime: newEndTime });
         }
     });
 
-    // ── Finish ──
     finishBtn.addEventListener('click', finishSession);
 
     function startTimerInterval() {
@@ -194,32 +213,24 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTimerDisplay();
         timerInterval = setInterval(() => {
             remainingSeconds--;
-            if (remainingSeconds <= 0) {
-                finishSession();
-            } else {
-                updateTimerDisplay();
-            }
+            if (remainingSeconds <= 0) finishSession();
+            else updateTimerDisplay();
         }, 1000);
     }
 
     function updateTimerDisplay() {
-        const h = Math.floor(remainingSeconds / 3600);
-        const m = Math.floor((remainingSeconds % 3600) / 60).toString().padStart(2, '0');
+        const m = Math.floor(remainingSeconds / 60).toString().padStart(2, '0');
         const s = (remainingSeconds % 60).toString().padStart(2, '0');
-        countdownDisplay.textContent = h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`;
-
-        const circleCircumference = 465; // 2 * pi * 74
+        countdownDisplay.textContent = `${m}:${s}`;
         const progress = remainingSeconds / totalSeconds;
-        const dashOffset = circleCircumference - (progress * circleCircumference);
-        timerProgressCircle.style.strokeDashoffset = dashOffset;
+        timerProgressCircle.style.strokeDashoffset = 465 - (progress * 465);
     }
 
     function finishSession() {
         clearInterval(timerInterval);
-        chrome.storage.local.set({ sessionActive: false, currentTask: null, sessionEndTime: null, aiTip: null });
+        chrome.storage.local.set({ sessionActive: false, currentTask: null, sessionEndTime: null, sessionStartTime: null, aiTip: null });
         chrome.runtime.sendMessage({ action: "SESSION_ENDED" });
         isPaused = false;
-        pauseIconContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
         setActiveState(false);
         showHomeView();
     }

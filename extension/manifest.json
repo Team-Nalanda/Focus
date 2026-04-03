@@ -10,6 +10,11 @@
     "alarms",
     "sidePanel"
   ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:3000/*"
+    ]
+  },
   "host_permissions": [
     "<all_urls>"
   ],

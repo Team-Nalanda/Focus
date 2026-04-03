@@ -35,6 +35,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setIsLoading(false);
+
+      if (currentUser && typeof window !== 'undefined' && (window as any).chrome?.runtime) {
+        const EXTENSION_ID = 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
+        try {
+          (window as any).chrome.runtime.sendMessage(EXTENSION_ID, {
+            action: 'AUTH_SYNC',
+            uid: currentUser.uid
+          }, () => {
+             if ((window as any).chrome.runtime.lastError) {
+               console.log('Extension not found or not responding. (Optional for dev)');
+             } else {
+               console.log('Successfully synced auth with Focus extension.');
+             }
+          });
+        } catch (e) {
+          console.warn('Failed to communicate with Focus extension.', e);
+        }
+      }
     });
 
     return () => unsubscribe();

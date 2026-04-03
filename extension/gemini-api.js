@@ -1,78 +1,91 @@
+const STATIC_DISTRACTIONS = ['facebook.com', 'youtube.com', 'twitter.com', 'instagram.com', 'netflix.com', 'reddit.com', 'tiktok.com', 'twitch.tv'];
+const STATIC_PRODUCTIVE = ['github.com', 'stackoverflow.com', 'localhost', 'docs.google.com', 'visualstudio.com', 'npmjs.com', 'pnpm.io'];
+
 const GeminiHelper = {
-    _apiKey: "AIzaSyDE1HjIgY-tiv1T19sPGRN4PQhsH9zm6oc",
+    _apiKey: "AIzaSyBchvpvM6w_Z49IHwhNmHzXXRIJeXm1XTA",
+    _model: "gemma-2-9b-it",
 
     async init() {
         return Promise.resolve(true);
     },
 
     async _callAPI(prompt) {
-        if (!this._apiKey) {
-            console.error('Gemini API key is missing. Initialize first.');
-            return null;
-        }
+        if (!this._apiKey) return null;
 
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${this._apiKey}`;
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this._model}:generateContent?key=${this._apiKey}`;
 
         try {
             const response = await fetch(endpoint, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{
-                        parts: [{ text: prompt }]
-                    }]
+                    contents: [{ parts: [{ text: prompt }] }]
                 })
             });
 
             if (!response.ok) {
-                console.error('Failed to communicate with Gemini API.', await response.text());
+                console.warn('Gemini AI Issue: Switching to Safety Mode.');
                 return null;
             }
 
             const data = await response.json();
-            return data.candidates[0].content.parts[0].text;
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text) return null;
+
+            // Clean markdown blocks
+            return text.replace(/```json/g, '').replace(/```/g, '').trim();
         } catch (err) {
-            console.error('Error fetching from Gemini API:', err);
+            console.error('Gemini AI Connectivity Error:', err);
             return null;
         }
     },
 
     async analyzeTaskDuration(taskDescription) {
-        const prompt = `The user is doing the following task: "${taskDescription}". Suggest an optimal focus time in minutes (choose either 25, 50, or 90 based on typical complexity). Respond with ONLY a JSON object exactly matching this structure: {"duration": 25, "tip": "A 1-sentence contextual motivational tip"}`;
-
+        const prompt = `Task: "${taskDescription}". Suggest duration (25, 50, or 90 mins). Return ONLY JSON: {"duration": 25, "tip": "contextual tip"}`;
         const responseText = await this._callAPI(prompt);
-        if (!responseText) return { duration: 25, tip: "Stay focused!" };
+        
+        if (!responseText) {
+            return { duration: 25, tip: "Let's focus on your task for a standard 25-minute sprint!" };
+        }
 
         try {
-            const jsonStr = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-            const parsed = JSON.parse(jsonStr);
+            const parsed = JSON.parse(responseText);
             return {
                 duration: parsed.duration || 25,
                 tip: parsed.tip || "Let's dive in."
             };
         } catch (e) {
-            console.error('Failed to parse Gemini response for task analysis.', responseText);
             return { duration: 25, tip: "Stay focused!" };
         }
     },
 
     async determineRelevance(taskName, currentUrl) {
-        const prompt = `The user is currently focused on the task: "${taskName}". They just navigated to the URL: "${currentUrl}". Is this URL helpful or relevant for completing their task, or is it a distraction? Respond with ONLY a JSON block exactly like this: {"isDistraction": true_or_false, "nudgeMsg": "A short, gentle, and clever nudge to get them back on track (only if true, else empty)"}`;
+        const urlObj = new URL(currentUrl);
+        const domain = urlObj.hostname.toLowerCase();
 
+        // 1. Check Local Static Rules First
+        if (STATIC_DISTRACTIONS.some(d => domain.includes(d))) {
+            return { isDistraction: true, nudgeMsg: "This site is a known black-hole. Let's get back to work!" };
+        }
+        if (STATIC_PRODUCTIVE.some(d => domain.includes(d))) {
+            return { isDistraction: false, nudgeMsg: "" };
+        }
+
+        // 2. Try the AI
+        const prompt = `Goal: "${taskName}". URL: "${currentUrl}". Is it helpful or distracting? Return ONLY JSON: {"isDistraction": true_or_false, "nudgeMsg": "nudge if true"}`;
         const responseText = await this._callAPI(prompt);
-        if (!responseText) return { isDistraction: false, nudgeMsg: "" };
+        
+        if (!responseText) {
+            return { isDistraction: false, nudgeMsg: "" };
+        }
 
         try {
-            const jsonStr = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-            const parsed = JSON.parse(jsonStr);
+            const parsed = JSON.parse(responseText);
             return {
                 isDistraction: !!parsed.isDistraction,
-                nudgeMsg: parsed.nudgeMsg || "Hey, is this website helping you with your goal? Let's refocus!"
+                nudgeMsg: parsed.nudgeMsg || "Let's refocus!"
             };
         } catch (e) {
-            console.error('Failed to parse Gemini response for relevance detection.', responseText);
             return { isDistraction: false, nudgeMsg: "" };
         }
     }
