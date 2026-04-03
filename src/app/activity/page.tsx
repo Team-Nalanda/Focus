@@ -171,7 +171,7 @@ export default function ActivityPage() {
 				await set(liveRef, { active: false });
 
 				// 4. Notify Extension to Stop Immediately
-				const EXTENSION_ID = 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
+				const EXTENSION_ID = process.env.NEXT_PUBLIC_EXTENSION_ID || 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
 				if (typeof window !== 'undefined' && (window as any).chrome?.runtime) {
 					try {
 						(window as any).chrome.runtime.sendMessage(EXTENSION_ID, {
@@ -249,7 +249,7 @@ export default function ActivityPage() {
 									<div className="flex flex-col md:flex-row md:items-end gap-6 justify-between">
 										<div className="space-y-2">
 											<h2 className="text-5xl font-light text-white mb-2 tracking-tight">
-												{currentApp?.name || 'Unknown App'}
+												{currentApp?.name || 'Awaiting Activity...'}
 											</h2>
 											<div className="flex flex-wrap gap-4 text-neutral-400">
 												<p className="flex items-center gap-2 text-sm bg-neutral-900 px-3 py-1.5 rounded-lg border border-neutral-800">

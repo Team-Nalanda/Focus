@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FocusFlow AI - Gemma Tester</title>
+    <style>
+        body { font-family: sans-serif; background: #0f0f0f; color: #eee; padding: 40px; }
+        .card { background: #1a1a1a; padding: 24px; border-radius: 12px; border: 1px solid #333; max-width: 600px; margin: auto; }
+        input, select, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: 1px solid #444; background: #222; color: white; }
+        button { background: #10b981; border: none; font-weight: bold; cursor: pointer; }
+        pre { background: #000; padding: 15px; border-radius: 6px; overflow-x: auto; font-size: 12px; color: #0f0; }
+        .error { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Gemma API Tester</h2>
+        <p style="font-size: 13px; color: #888;">Use this to verify if your Google AI Key supports specifically the Gemma model.</p>
+        
+        <label>API Key</label>
+        <input type="text" id="apiKey" value="AIzaSyBchvpvM6w_Z49IHwhNmHzXXRIJeXm1XTA">
+        
+        <label>Model ID</label>
+        <select id="modelId">
+            <option value="gemma-2-9b-it">gemma-2-9b-it (User Preferred)</option>
+            <option value="gemini-1.5-flash">gemini-1.5-flash (Fastest/Reliable Fallback)</option>
+            <option value="gemini-1.5-pro">gemini-1.5-pro (Highest Intelligence)</option>
+        </select>
+        
+        <button id="testBtn">Run Intelligence Test</button>
+        <button id="listBtn" style="background: #3b82f6;">Find My Available Models</button>
+        
+        <div id="status"></div>
+        <h4>Response Body:</h4>
+        <pre id="output">Results will appear here...</pre>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const status = document.getElementById('status');
+
+        document.getElementById('listBtn').addEventListener('click', async () => {
+            const key = document.getElementById('apiKey').value;
+            output.textContent = "Listing models... please wait.";
+            const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${key}`;
+            
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                output.textContent = JSON.stringify(data, null, 2);
+                
+                if (resp.ok) {
+                    const models = data.models.map(m => m.name.replace('models/', ''));
+                    status.innerHTML = `<b style='color: #3b82f6;'>Found ${models.length} models!</b><br/><span style='font-size:11px'>Try searching for "gemma" in the list below.</span>`;
+                }
+            } catch (err) {
+                output.textContent = "List Failed: " + err.message;
+            }
+        });
+
+        document.getElementById('testBtn').addEventListener('click', async () => {
+            const key = document.getElementById('apiKey').value;
+            const model = document.getElementById('modelId').value;
+            const output = document.getElementById('output');
+            const status = document.getElementById('status');
+            
+            output.textContent = "Testing... please wait.";
+            status.textContent = "";
+
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+            
+            try {
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: "Respond with the word 'SUCCESS' if you can read this." }] }]
+                    })
+                });
+
+                const data = await resp.json();
+                output.textContent = JSON.stringify(data, null, 2);
+
+                if (resp.ok) {
+                    status.innerHTML = "<b style='color: #10b981;'>Connection Successful!</b>";
+                } else {
+                    status.innerHTML = "<b class='error'>API Error: " + (data.error?.message || "Unknown error") + "</b>";
+                }
+            } catch (err) {
+                output.textContent = "Request Failed: " + err.message;
+                status.innerHTML = "<b class='error'>Connection Failed</b>";
+            }
+        });
+    </script>
+</body>
+</html>

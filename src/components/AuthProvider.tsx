@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
 
       if (currentUser && typeof window !== 'undefined' && (window as any).chrome?.runtime) {
-        const EXTENSION_ID = 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
+        const EXTENSION_ID = process.env.NEXT_PUBLIC_EXTENSION_ID || 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
         try {
           (window as any).chrome.runtime.sendMessage(EXTENSION_ID, {
             action: 'AUTH_SYNC',

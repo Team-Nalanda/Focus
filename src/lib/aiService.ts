@@ -2,7 +2,7 @@ export async function getLiveFocusTip(activities: any[]) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return "Focus on the task at hand.";
 
-  const model = "gemini-1.5-flash-latest";
+  const model = "gemma-4-31b-it";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const recentLog = activities
@@ -41,23 +41,21 @@ export async function analyzeSessionActivity(activities: any[]) {
     throw new Error("GEMINI_API_KEY is not defined in environment variables.");
   }
 
-  const model = "gemini-1.5-flash-latest";
+  const model = "gemma-4-31b-it";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-  // Format activities for the prompt
   const activityLog = activities
     .map((a) => `${a.name || a.App_Name} [${a.Activity_Type || 'Neutral'}]`)
     .join(" -> ");
 
   const prompt = `
-    Analyze this focus session: [${activityLog}]
-    Respond with ONLY a VALID JSON object with: 
+    Analyze this focus session activity log: [${activityLog}]
+    Provide a deep-dive behavioral intelligence report in VALID JSON format with exactly these fields:
     {
-      "Focus_Score": <0-100>,
-      "Behavior_Pattern": "<Advanced psychological analysis: Identify 'Flow Entry' and 'Distraction Clusters'.>",
-      "Recommendation": "<One specific, actionable strategy.>"
+      "Focus_Score": <integer 0-100>,
+      "Behavior_Pattern": "<Identify 'Flow Entry', 'Distraction Clusters', and 'Context Switching Penalty'>",
+      "Recommendation": "<One specific, actionable strategy to fix the distraction patterns in this data.>"
     }
-    No extra text, no markdown.
   `;
 
   try {
@@ -71,7 +69,7 @@ export async function analyzeSessionActivity(activities: any[]) {
 
     if (!response.ok) {
       const err = await response.text();
-      console.error("Gemini Engine Error:", err);
+      console.error("Gemma Engine Error:", err);
       throw new Error("Intelligence Engine unavailable.");
     }
 
@@ -79,12 +77,17 @@ export async function analyzeSessionActivity(activities: any[]) {
     const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!textResponse) {
-      throw new Error("Gemini returned an empty intelligence report.");
+      throw new Error("Gemma returned an empty intelligence report.");
     }
 
-    // Robust parsing: strip potential markdown code blocks
-    const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanJson);
+    // Robust JSON Extraction: Find the core JSON object in the string
+    // This handles "Thinking" models that output preamble or thoughts
+    const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("Could not find valid JSON report in AI response.");
+    }
+
+    return JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error("AI Analysis Execution Error:", error);
     return {

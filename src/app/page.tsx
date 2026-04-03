@@ -230,7 +230,7 @@ export default function Dashboard() {
 			await set(liveRef, { active: false });
 
 			// 5. Notify extension to stop tracking
-			const EXTENSION_ID = 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
+			const EXTENSION_ID = process.env.NEXT_PUBLIC_EXTENSION_ID || 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
 			if (typeof window !== 'undefined' && (window as any).chrome?.runtime) {
 				try {
 					(window as any).chrome.runtime.sendMessage(EXTENSION_ID, {

@@ -3,7 +3,7 @@ const STATIC_PRODUCTIVE = ['github.com', 'stackoverflow.com', 'localhost', 'docs
 
 const GeminiHelper = {
     _apiKey: "AIzaSyBchvpvM6w_Z49IHwhNmHzXXRIJeXm1XTA",
-    _model: "gemma-2-9b-it",
+    _model: "gemma-4-31b-it",
 
     async init() {
         return Promise.resolve(true);
