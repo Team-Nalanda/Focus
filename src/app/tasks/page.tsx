@@ -78,7 +78,7 @@ export default function TasksPage() {
               ) : sessions.length === 0 ? (
                 <div className="p-8 text-center text-neutral-500 text-sm italic">No focus history found. <br/> Start your first session to begin tracking.</div>
               ) : (
-                sessions.map((session) => (
+                sessions.map((session, index) => (
                 <button
                   key={session.id}
                   onClick={() => setSelectedSession(session)}
@@ -89,7 +89,7 @@ export default function TasksPage() {
                   }`}
                 >
                   <div className="flex justify-between items-center w-full mb-1">
-                    <span className="text-sm font-medium">Session {session.id?.slice(-4) || '0000'}</span>
+                    <span className="text-sm font-medium text-white">Session {sessions.length - index}</span>
                     {session.Status === 'Completed' ? (
                       <CheckCircle2 size={16} className="text-emerald-400" />
                     ) : session.Status === 'Active' ? (
@@ -99,7 +99,7 @@ export default function TasksPage() {
                     )}
                   </div>
                   <div className="flex justify-between text-xs text-neutral-500 w-full text-left">
-                    <span>Score: {session.Focus_Level || session.FocusAnalysis?.Focus_Score || 0}%</span>
+                    <span>Score: {session.FocusAnalysis?.Focus_Score || session.Focus_Level || 0}%</span>
                     <span>
                       {(session.Start_Time as any)?.toDate 
                         ? (session.Start_Time as any).toDate().toLocaleDateString()
@@ -146,8 +146,8 @@ export default function TasksPage() {
                   </div>
                   <h2 className="text-5xl font-light tracking-tight flex items-baseline gap-3">
                     <span className="text-neutral-500 text-2xl font-light">Focus Score:</span>
-                    <span className={getScoreColor(selectedSession.Focus_Level || selectedSession.FocusAnalysis?.Focus_Score || 0)}>
-                      {selectedSession.Focus_Level || selectedSession.FocusAnalysis?.Focus_Score || '0'}
+                    <span className={getScoreColor(selectedSession.FocusAnalysis?.Focus_Score || selectedSession.Focus_Level || 0)}>
+                      {selectedSession.FocusAnalysis?.Focus_Score || selectedSession.Focus_Level || '0'}
                     </span>
                   </h2>
                 </div>

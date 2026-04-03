@@ -97,19 +97,28 @@ export default function Dashboard() {
 
 					let dayScore = 0;
 					let dayDuration = 0;
-					if (daySessions.length > 0) {
+					
+					// Only use completed sessions for the focus score to avoid inflating with placeholders
+					const completedDaySessions = daySessions.filter(s => s.Status === 'Completed');
+					
+					if (completedDaySessions.length > 0) {
 						dayScore = Math.round(
-							daySessions.reduce((acc, s) => acc + (s.Focus_Level || 0), 0) /
-								daySessions.length,
+							completedDaySessions.reduce(
+								(acc, s) => acc + (s.FocusAnalysis?.Focus_Score || s.Focus_Level || 0),
+								0,
+							) / completedDaySessions.length,
 						);
-						// Estimate duration
+					}
+
+					// Duration can still include active sessions (optional, but consistent with 'Deep Work Time')
+					if (daySessions.length > 0) {
 						dayDuration = daySessions.reduce((acc, s) => {
 							const st = (s.Start_Time as any)?.toDate?.() || new Date();
 							const et = (s.End_Time as any)?.toDate?.() || null;
 							if (et) {
 								return acc + (et.getTime() - st.getTime()) / (1000 * 60 * 60);
 							}
-							return acc + 0.5; // default 30 mins if not completed
+							return acc; // Don't count ongoing session duration in history charts
 						}, 0);
 					}
 
@@ -259,97 +268,6 @@ export default function Dashboard() {
 		}
 	};
 
-	const handleSeedSampleData = async () => {
-		if (!user) return;
-		setStartingExtension(true);
-		try {
-			const userRef = doc(db, 'User', user.uid);
-			await setDoc(
-				userRef,
-				{
-					Email: user.email,
-					Name: user.displayName || 'Demo User',
-					Settings: {
-						Notification_Preference: 'Important',
-						Sensitivity_Level: 'Medium',
-					},
-					Updated_At: serverTimestamp(),
-				},
-				{ merge: true },
-			);
-
-			const daysToSeed = 7;
-			for (let i = 0; i < daysToSeed; i++) {
-				const date = new Date();
-				date.setDate(date.getDate() - i);
-				const numSessions = Math.floor(Math.random() * 3) + 1;
-
-				for (let j = 0; j < numSessions; j++) {
-					const hour = 9 + j * 4 + Math.floor(Math.random() * 2);
-					const startTime = new Date(date);
-					startTime.setHours(hour, 0, 0, 0);
-					const durationMins = 45 + Math.floor(Math.random() * 75);
-					const endTime = new Date(startTime.getTime() + durationMins * 60000);
-					const focusLevel = 70 + Math.floor(Math.random() * 30);
-
-					const sessionRef = doc(collection(db, 'User', user.uid, 'Session'));
-					await setDoc(sessionRef, {
-						Status: 'Completed',
-						Focus_Level: focusLevel,
-						Start_Time: Timestamp.fromDate(startTime),
-						End_Time: Timestamp.fromDate(endTime),
-						FocusAnalysis: {
-							Focus_Score: focusLevel,
-							Behavior_Pattern:
-								i % 2 === 0
-									? 'Consistent high productivity throughout the morning.'
-									: 'Mid-session context switching detected.',
-							Recommendation:
-								'Your focus is naturally higher in the mornings. Maintain this schedule.',
-							Analyzed_At: serverTimestamp(),
-						},
-					});
-
-					const apps = [
-						{ name: 'VS Code', type: 'Productive' },
-						{ name: 'Figma', type: 'Productive' },
-						{ name: 'Chrome', type: 'Neutral' },
-						{ name: 'Spotify', type: 'Neutral' },
-						{ name: 'Twitter', type: 'Distracting' },
-						{ name: 'Instagram', type: 'Distracting' },
-					];
-
-					const numActivities = 3 + Math.floor(Math.random() * 3);
-					for (let k = 0; k < numActivities; k++) {
-						const app = apps[Math.floor(Math.random() * apps.length)];
-						const actStart = new Date(startTime.getTime() + k * 15 * 60000);
-						const actEnd = new Date(actStart.getTime() + 12 * 60000);
-
-						const activityRef = doc(
-							collection(db, 'User', user.uid, 'Activity'),
-						);
-						await setDoc(activityRef, {
-							Session_ID: sessionRef.id,
-							App_Name: app.name,
-							Activity_Type: app.type,
-							Start_Time: Timestamp.fromDate(actStart),
-							End_Time: Timestamp.fromDate(actEnd),
-						});
-					}
-				}
-			}
-			alert(
-				'Sample data seeded! The dashboard will now reflect your new focus history.',
-			);
-			window.location.reload();
-		} catch (e) {
-			console.error(e);
-			alert('Seeding failed. Check console for details.');
-		} finally {
-			setStartingExtension(false);
-		}
-	};
-
 	const handleStartExtension = async () => {
 		setStartingExtension(true);
 		if (!user) return;
@@ -384,7 +302,9 @@ export default function Dashboard() {
 		}
 	};
 
-	const totalDeepWorkHours = sessions.reduce((acc, s) => {
+	const completedSessions = sessions.filter((s) => s.Status === 'Completed');
+
+	const totalDeepWorkHours = completedSessions.reduce((acc, s) => {
 		const st = (s.Start_Time as any)?.toDate?.() || new Date();
 		const et = (s.End_Time as any)?.toDate?.() || null;
 		return acc + (et ? (et.getTime() - st.getTime()) / (1000 * 60 * 60) : 0);
@@ -393,12 +313,15 @@ export default function Dashboard() {
 	const deepWorkDisplay = `${Math.floor(totalDeepWorkHours)}h ${Math.round((totalDeepWorkHours % 1) * 60)}m`;
 
 	const avgFocusScore =
-		sessions.length > 0
+		completedSessions.length > 0
 			? Math.round(
-					sessions.reduce((acc, s) => acc + (s.Focus_Level || 0), 0) /
-						sessions.length,
-				)
+					completedSessions.reduce(
+						(acc, s) => acc + (s.FocusAnalysis?.Focus_Score || s.Focus_Level || 0),
+						0,
+					) / completedSessions.length,
+			  )
 			: 0;
+
 
 	return (
 		<AppLayout>
@@ -474,14 +397,6 @@ export default function Dashboard() {
 
 					<div className="flex items-center gap-3">
 						<button
-							onClick={handleSeedSampleData}
-							disabled={startingExtension}
-							className="flex items-center space-x-2 px-4 py-3 bg-neutral-900 text-neutral-400 border border-neutral-800 rounded-lg font-medium tracking-wide hover:text-white hover:border-neutral-700 transition-all active:scale-[0.98] disabled:opacity-70"
-						>
-							<Activity size={18} />
-							<span>Seed Data</span>
-						</button>
-						<button
 							onClick={handleStartExtension}
 							disabled={startingExtension}
 							className="group flex items-center space-x-3 px-6 py-3 bg-white text-black rounded-lg font-medium tracking-wide hover:bg-neutral-200 transition-all active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
@@ -525,7 +440,7 @@ export default function Dashboard() {
 						},
 						{
 							label: 'Sessions Completed',
-							value: `${sessions.filter((s) => s.Status === 'Completed').length}`,
+							value: `${completedSessions.length}`,
 							icon: CheckSquare,
 							trend: '',
 							skipTrendIcon: true,
