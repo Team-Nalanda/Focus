@@ -1,4 +1,5 @@
 import GeminiHelper from './gemini-api.js';
+import FirebaseHelper from './firebase-config.js';
 
 let timerInterval;
 let remainingSeconds = 0;
@@ -26,6 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const finishBtn = document.getElementById('finishBtn');
     const statusBadge = document.getElementById('statusBadge');
     const statusText = document.getElementById('statusText');
+    const historyView = document.getElementById('historyView');
+    const historyList = document.getElementById('historyList');
 
     // Settings refs
     const uidInput = document.getElementById('uidInput');
@@ -56,6 +59,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (data.sessionActive) sessionView.classList.add('active');
                     else homeView.classList.add('active');
                 });
+            } else if (target === 'history') {
+                historyView.classList.add('active');
+                loadHistory();
             } else if (target === 'settings') {
                 settingsView.classList.add('active');
             }
@@ -255,5 +261,49 @@ document.addEventListener('DOMContentLoaded', () => {
             statusBadge.className = 'status-badge idle';
             statusText.textContent = 'Idle';
         }
+    }
+
+    async function loadHistory() {
+        chrome.storage.local.get(['uid'], async (data) => {
+            if (!data.uid) {
+                historyList.innerHTML = '<div class="history-item loading"><p>Login on the website to view history.</p></div>';
+                return;
+            }
+
+            try {
+                historyList.innerHTML = '<div class="history-item loading"><p>Syncing recent sessions...</p></div>';
+                await FirebaseHelper.init();
+                const sessions = await FirebaseHelper.getSessions(data.uid, 10);
+                
+                if (sessions.length === 0) {
+                    historyList.innerHTML = '<div class="history-item loading" style="border-style: none;"><p>No focus sessions found yet.</p></div>';
+                    return;
+                }
+
+                historyList.innerHTML = ''; // Clear loading
+                sessions.forEach((session, index) => {
+                    const date = session.Start_Time?.toDate ? session.Start_Time.toDate().toLocaleDateString() : 'Recent';
+                    const score = session.FocusAnalysis?.Focus_Score || session.Focus_Level || 0;
+                    
+                    const item = document.createElement('div');
+                    item.className = 'history-item fade-in';
+                    item.style.animationDelay = `${index * 0.05}s`;
+                    
+                    const scoreColor = score >= 85 ? 'var(--accent)' : score >= 60 ? 'var(--warning)' : 'var(--danger)';
+                    
+                    item.innerHTML = `
+                        <div class="history-info">
+                            <span class="history-task">${session.Task || 'Focus Session'}</span>
+                            <span class="history-date">${date}</span>
+                        </div>
+                        <div class="history-score" style="color: ${scoreColor}">${score}%</div>
+                    `;
+                    historyList.appendChild(item);
+                });
+            } catch (error) {
+                console.error("Error loading history:", error);
+                historyList.innerHTML = '<div class="history-item loading"><p>Failed to load history.</p></div>';
+            }
+        });
     }
 });

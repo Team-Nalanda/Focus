@@ -113,6 +113,16 @@
         </div>
     </div>
 
+    <!-- ═══ SHARED HISTORY (Below Content) ═══ -->
+    <div id="unifiedHistory" class="unified-history fade-in">
+        <div class="section-label" style="padding: 16px 16px 8px;">Recent Activity</div>
+        <div id="historyList" class="history-list" style="padding: 0 16px 20px;">
+            <div class="history-item loading">
+                <p>Syncing your flow history...</p>
+            </div>
+        </div>
+    </div>
+
     <!-- ═══ SETTINGS TAB ═══ -->
     <div id="settingsView" class="view fade-in" data-tab-content="settings">
         <div class="card" style="display: flex; flex-direction: column; gap: 14px;">
@@ -120,7 +130,7 @@
 
             <div class="setting-group" style="margin-top: 10px; padding: 10px; background: var(--bg-card); border: 1px dashed var(--border); border-radius: 8px;">
                 <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Universal Auth Status</div>
-                <div id="authStatusDisplay" style="font-size: 13px; color: var(--text-muted); display: flex; items-center; gap: 6px;">
+                <div id="authStatusDisplay" style="font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
                     <span class="status-dot" id="authDot" style="width: 8px; height: 8px; margin-top: 4px;"></span>
                     <span id="authText">Not Authenticated</span>
                 </div>

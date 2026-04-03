@@ -24,7 +24,7 @@ const FirebaseHelper = {
         const docData = {
             fields: {
                 Status: { stringValue: "Active" },
-                Focus_Level: { integerValue: "100" },
+                Focus_Level: { integerValue: "0" },
                 Start_Time: { timestampValue: new Date().toISOString() },
                 Created_At: { timestampValue: new Date().toISOString() },
                 Updated_At: { timestampValue: new Date().toISOString() },
@@ -100,7 +100,7 @@ const FirebaseHelper = {
         }
     },
 
-    async pushLiveActivity(uid, activityName) {
+    async pushLiveActivity(uid, activityName, activityType = "Neutral") {
         if (!this._config.databaseURL) return;
         const endpoint = `${this._config.databaseURL}/users/${uid}/liveSession/activities.json`;
         
@@ -110,6 +110,7 @@ const FirebaseHelper = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: activityName,
+                    type: activityType,
                     timestamp: Date.now()
                 })
             });
@@ -117,6 +118,63 @@ const FirebaseHelper = {
         } catch (err) {
             console.error('RTDB Push Activity Error:', err);
             return false;
+        }
+    },
+
+    // ── Firestore: Fetch Recent Sessions ──
+    async getSessions(uid, limit = 10) {
+        if (!this._config.projectId) return [];
+
+        const projectId = this._config.projectId;
+        const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`;
+
+        const query = {
+            structuredQuery: {
+                from: [{ collectionId: "Session" }],
+                where: {
+                    fieldFilter: {
+                        field: { fieldPath: "__name__" },
+                        op: "GREATER_THAN",
+                        value: { stringValue: `projects/${projectId}/databases/(default)/documents/User/${uid}/Session/` }
+                    }
+                },
+                orderBy: [{
+                    field: { fieldPath: "Start_Time" },
+                    direction: "DESCENDING"
+                }],
+                limit: limit
+            }
+        };
+
+        try {
+            const resp = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(query)
+            });
+            const data = await resp.json();
+            
+            // Map Firestore REST response to clean objects
+            return (data || []).filter(item => item.document).map(item => {
+                const doc = item.document;
+                const fields = doc.fields || {};
+                return {
+                    id: doc.name.split('/').pop(),
+                    Task: fields.Task?.stringValue || "Focus Session",
+                    Status: fields.Status?.stringValue || "Completed",
+                    Focus_Level: parseInt(fields.Focus_Level?.integerValue || "0"),
+                    Start_Time: { 
+                        toDate: () => new Date(fields.Start_Time?.timestampValue || Date.now())
+                    },
+                    FocusAnalysis: fields.FocusAnalysis?.mapValue?.fields ? {
+                        Focus_Score: parseInt(fields.FocusAnalysis.mapValue.fields.Focus_Score?.integerValue || "0"),
+                        Behavior_Pattern: fields.FocusAnalysis.mapValue.fields.Behavior_Pattern?.stringValue || ""
+                    } : null
+                };
+            });
+        } catch (err) {
+            console.error('Firestore Fetch Sessions Error:', err);
+            return [];
         }
     }
 };

@@ -6,6 +6,17 @@ let currentUid = null;
 // Open Side Panel when the extension icon is clicked
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
+// Helper for safe communication with the popup (prevents error if popup is closed)
+function safeSendMessage(message) {
+    chrome.runtime.sendMessage(message, () => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+            // Silently ignore: this usually just means the popup is closed
+            console.log("Communication info: Popup closed, skipping UI sync.");
+        }
+    });
+}
+
 // 1. Initial load of active session and UID
 chrome.storage.local.get(['uid', 'sessionActive'], (data) => {
     if (data.uid) currentUid = data.uid;
@@ -19,7 +30,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         chrome.storage.local.set({ uid: message.uid });
 
         // Push some UI feedback to popup if open
-        chrome.runtime.sendMessage({ action: 'AUTH_UPDATED', authenticated: true });
+        safeSendMessage({ action: 'AUTH_UPDATED', authenticated: true });
     }
 });
 
@@ -30,10 +41,18 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         
         let sessionId = message.sessionId;
         if (!sessionId && currentUid) {
-            // Create Firestore session if started from extension
             sessionId = await FirebaseHelper.createSession(currentUid, { task: message.task });
             if (sessionId) {
-                chrome.storage.local.set({ firestoreSessionId: sessionId });
+                chrome.storage.local.set({ 
+                    firestoreSessionId: sessionId,
+                    sessionActive: true,
+                    currentTask: message.task 
+                }, () => {
+                    // Trigger immediate capture of current tab
+                    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                        if (tabs[0]) handleActivityChange(tabs[0].id);
+                    });
+                });
             }
         }
 
@@ -58,15 +77,20 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         chrome.storage.local.set({ 
             firestoreSessionId: message.sessionId,
             sessionActive: !!message.active
-        });
-        chrome.runtime.sendMessage({ action: 'SESSION_STARTED_REMOTE', sessionId: message.sessionId });
-    } else if (message.action === 'SESSION_STOP') {
-        console.log('Session stopped from website.');
-        chrome.storage.local.set({ 
-            sessionActive: false,
-            firestoreSessionId: null
         }, () => {
-            chrome.runtime.sendMessage({ action: 'SESSION_STOPPED_REMOTE' });
+            // Trigger immediate capture after state sync
+            if (!!message.active && currentUid) {
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                    if (tabs[0]) handleActivityChange(tabs[0].id);
+                });
+            }
+        });
+        safeSendMessage({ action: 'SESSION_STARTED_REMOTE', sessionId: message.sessionId });
+    } else if (message.action === 'SESSION_STOP') {
+        console.log('Session stopped from website. Purging local state.');
+        chrome.storage.local.clear(() => {
+            console.log('Local storage cleared.');
+            safeSendMessage({ action: 'SESSION_STOPPED_REMOTE' });
         });
     }
 });
@@ -110,24 +134,38 @@ async function handleActivityChange(tabId) {
 
             console.log(`Tracking change to: ${title}`);
 
+            // C. AI Relevance Check
+            const evaluation = await GeminiHelper.determineRelevance(data.currentTask, tab.url);
+            const activityType = evaluation.isDistraction ? "Distracting" : "Productive";
+
             // A. Update RTDB Live State (Dashboard Top Monitor)
             await FirebaseHelper.updateLiveSession(currentUid, {
                 currentApp: { name: title, startTime: Date.now() }
             });
 
             // B. Push to RTDB History (Dashboard Timeline)
-            await FirebaseHelper.pushLiveActivity(currentUid, title);
+            await FirebaseHelper.pushLiveActivity(currentUid, title, activityType);
 
-            // C. AI Relevance Check & Firestore Log
-            const evaluation = await GeminiHelper.determineRelevance(data.currentTask, tab.url);
-            
+            // D. AI Interactive Nudge Check
             if (evaluation && evaluation.isDistraction) {
-                chrome.notifications.create({
-                    type: 'basic',
-                    iconUrl: 'icons/icon128.png', 
-                    title: 'FocusFlow AI Reminder',
-                    message: evaluation.nudgeMsg || `You got off track!`,
-                    priority: 2
+                console.log("Distraction detected! Injecting interactive nudge...");
+                
+                // 1. Inject the styles
+                chrome.scripting.insertCSS({
+                    target: { tabId: tabId },
+                    files: ['nudge.css']
+                });
+
+                // 2. Pass the nudge message and inject the script
+                chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    func: (msg) => { window.focusNudgeMessage = msg; },
+                    args: [evaluation.nudgeMsg || "Focus seems to be wandering off. Time to get back to work?"]
+                }).then(() => {
+                    chrome.scripting.executeScript({
+                        target: { tabId: tabId },
+                        files: ['nudge.js']
+                    });
                 });
             }
 

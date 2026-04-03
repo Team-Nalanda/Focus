@@ -8,7 +8,9 @@
     "storage",
     "notifications",
     "alarms",
-    "sidePanel"
+    "sidePanel",
+    "scripting",
+    "activeTab"
   ],
   "externally_connectable": {
     "matches": [

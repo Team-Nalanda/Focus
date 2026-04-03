@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { useAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, orderBy, deleteDoc, doc, updateDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { Session, Activity } from '@/types/firestore';
 import { Clock, CheckCircle2, XCircle, Layout, Brain, Sparkles, ShieldCheck, Zap, Trash2 } from 'lucide-react';
 
@@ -14,6 +14,104 @@ export default function TasksPage() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [sessionActivities, setSessionActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const handleCompleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user || !confirm('Mark this session as completed?')) return;
+
+    try {
+      const sessionRef = doc(db, 'User', user.uid, 'Session', sessionId);
+      await updateDoc(sessionRef, {
+        Status: 'Completed',
+        End_Time: serverTimestamp(),
+        Updated_At: serverTimestamp()
+      });
+
+      // TRIGGER SELF-HEALING ANALYSIS IMMEDIATELY
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activities: sessionActivities })
+      });
+      
+      if (response.ok) {
+        const analysis = await response.json();
+        await updateDoc(sessionRef, {
+          Focus_Level: analysis.Focus_Score,
+          FocusAnalysis: analysis
+        });
+        setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, Status: 'Completed', FocusAnalysis: analysis, Focus_Level: analysis.Focus_Score } : s));
+      }
+    } catch (error) {
+      console.error('Error completing session:', error);
+    }
+  };
+
+  // 1. Realtime Listeners & Auto-Heal Coordinator
+  useEffect(() => {
+    if (!user) return;
+    
+    // a. Listen for Sessions (Sidebar List)
+    const sessionsQ = query(collection(db, 'User', user.uid, 'Session'), orderBy('Start_Time', 'desc'));
+    const unsubscribeSessions = onSnapshot(sessionsQ, (snap) => {
+      const dbSessions = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Session));
+      setSessions(dbSessions);
+      
+      // Update selected anchor if needed
+      if (selectedSession?.id) {
+        const current = dbSessions.find(s => s.id === selectedSession.id);
+        if (current) setSelectedSession(current);
+      } else if (dbSessions.length > 0 && !selectedSession) {
+        setSelectedSession(dbSessions[0]);
+      }
+      setLoading(false);
+    });
+
+    // b. Listen for Activities (Selected Session Detail)
+    let unsubscribeActivities = () => {};
+    if (selectedSession?.id) {
+      const actQuery = query(
+        collection(db, 'User', user.uid, 'Session', selectedSession.id, 'Activity'), 
+        orderBy('Start_Time', 'desc')
+      );
+      unsubscribeActivities = onSnapshot(actQuery, (snap) => {
+        const acts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
+        setSessionActivities(acts);
+      });
+
+      // c. Side-Effect: Auto-Heal Analysis for Completed Sessions
+      if (selectedSession.Status === 'Completed' && !selectedSession.FocusAnalysis && sessionActivities.length > 0) {
+        setIsAnalyzing(true);
+        const heal = async () => {
+          try {
+            const response = await fetch('/api/analyze', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ activities: sessionActivities })
+            });
+            if (response.ok) {
+              const analysis = await response.json();
+              await updateDoc(doc(db, 'User', user.uid, 'Session', selectedSession.id!), {
+                Focus_Level: analysis.Focus_Score,
+                FocusAnalysis: analysis
+              });
+            }
+          } catch (e) {
+            console.error("Auto-heal failed:", e);
+          } finally {
+            setIsAnalyzing(false);
+          }
+        };
+        heal();
+      }
+    }
+
+    return () => {
+      unsubscribeSessions();
+      unsubscribeActivities();
+    };
+  }, [user, selectedSession?.id, sessionActivities.length]);
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -27,45 +125,6 @@ export default function TasksPage() {
       console.error('Error deleting session:', error);
     }
   };
-
-  useEffect(() => {
-    async function fetchSessions() {
-      if (!user) return;
-      try {
-        const q = query(collection(db, 'User', user.uid, 'Session'), orderBy('Start_Time', 'desc'));
-        const snap = await getDocs(q);
-        const dbSessions = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Session));
-        setSessions(dbSessions);
-        if (dbSessions.length > 0 && !selectedSession) {
-          setSelectedSession(dbSessions[0]);
-        }
-      } catch (error) {
-        console.error("Error fetching tasks:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchSessions();
-  }, [user]);
-
-  useEffect(() => {
-    async function fetchActivities() {
-       if (!user || !selectedSession?.id) return;
-       try {
-         // Query from the new sub-collection path
-         const actQuery = query(
-           collection(db, 'User', user.uid, 'Session', selectedSession.id, 'Activity'), 
-           orderBy('Start_Time', 'desc')
-         );
-         const snap = await getDocs(actQuery);
-         const acts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Activity));
-         setSessionActivities(acts);
-       } catch(e) {
-         console.error("Error fetching session activities:", e);
-       }
-    }
-    fetchActivities();
-  }, [user, selectedSession]);
 
   const getScoreColor = (score: number) => {
     if (score >= 85) return 'text-emerald-400';
@@ -114,12 +173,19 @@ export default function TasksPage() {
                         <XCircle size={16} className="text-red-400/50" />
                       )}
                       <button 
-                      onClick={(e) => session.id && handleDeleteSession(session.id, e)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-white/10 rounded-md transition-all text-neutral-500 hover:text-red-400 active:scale-95"
-                      title="Delete Session"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                        onClick={(e) => session.id && handleCompleteSession(session.id, e)}
+                        className={`p-1.5 hover:bg-emerald-500/10 rounded-md transition-all text-neutral-500 hover:text-emerald-400 active:scale-95 ${session.Status !== 'Active' && 'hidden'}`}
+                        title="Force Complete Session"
+                      >
+                        <CheckCircle2 size={14} />
+                      </button>
+                      <button 
+                        onClick={(e) => session.id && handleDeleteSession(session.id, e)}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-white/10 rounded-md transition-all text-neutral-500 hover:text-red-400 active:scale-95"
+                        title="Delete Session"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
                   <div className="flex justify-between text-[10px] text-neutral-500 w-full text-left uppercase tracking-wider font-medium">
@@ -193,10 +259,18 @@ export default function TasksPage() {
                         <Brain size={18} className="text-neutral-500" />
                         <p className="text-sm font-medium">Behavioral Pattern</p>
                       </div>
-                      <p className="text-neutral-400 font-light text-sm leading-relaxed min-h-[4rem]">
-                        {selectedSession.FocusAnalysis?.Behavior_Pattern || 
-                          (selectedSession.Status === 'Active' ? 'Computing live patterns from activity stream...' : 'Our AI is still processing the pattern for this block.')}
-                      </p>
+                      {isAnalyzing || (selectedSession.Status === 'Completed' && !selectedSession.FocusAnalysis) ? (
+                        <div className="space-y-2 animate-pulse">
+                          <div className="h-4 bg-neutral-800 rounded w-full"></div>
+                          <div className="h-4 bg-neutral-800 rounded w-5/6"></div>
+                          <p className="text-[10px] text-neutral-600 uppercase tracking-widest mt-2">Analyzing Life Patterns...</p>
+                        </div>
+                      ) : (
+                        <p className="text-neutral-400 font-light text-sm leading-relaxed min-h-[4rem]">
+                          {selectedSession.FocusAnalysis?.Behavior_Pattern || 
+                            (selectedSession.Status === 'Active' ? 'Computing live patterns from activity stream...' : 'Awaiting final data synchronization.')}
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-3">
@@ -204,10 +278,20 @@ export default function TasksPage() {
                         <ShieldCheck size={18} className="text-emerald-500/70" />
                         <p className="text-sm font-medium">Insights</p>
                       </div>
-                      <p className="text-neutral-400 font-light text-sm leading-relaxed min-h-[4rem]">
-                        {selectedSession.FocusAnalysis?.Recommendation || 
-                         (selectedSession.Status === 'Active' ? 'Strategic advice will appear once context is established.' : 'Keep maintaining a steady routine to baseline your performance.')}
-                      </p>
+                      {isAnalyzing || (selectedSession.Status === 'Completed' && !selectedSession.FocusAnalysis) ? (
+                        <div className="space-y-2 animate-pulse">
+                          <div className="h-4 bg-neutral-800 rounded w-full"></div>
+                          <div className="h-4 bg-neutral-800 rounded w-4/6"></div>
+                          <p className="text-[10px] text-neutral-600 uppercase tracking-widest mt-2">Scanning Cognition...</p>
+                        </div>
+                      ) : (
+                        <p className="text-neutral-400 font-light text-sm leading-relaxed min-h-[4rem]">
+                          {selectedSession.FocusAnalysis?.Recommendation || 
+                           (selectedSession.Status === 'Active' 
+                             ? 'Context established. Strategic advice will appear once you click "Complete Session".' 
+                             : 'Finalizing behavioral intelligence...')}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>

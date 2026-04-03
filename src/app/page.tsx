@@ -155,7 +155,7 @@ export default function Dashboard() {
 				collection(db, 'User', user.uid, 'Session'),
 				{
 					Status: 'Active',
-					Focus_Level: 100,
+					Focus_Level: 0,
 					Start_Time: serverTimestamp(),
 					Created_At: serverTimestamp(),
 					Updated_At: serverTimestamp(),

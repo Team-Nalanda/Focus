@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import AppLayout from '@/components/AppLayout';
 import { useAuth } from '@/components/AuthProvider';
 import { db, rtdb } from '@/lib/firebase';
@@ -21,6 +22,7 @@ import {
 
 export default function ActivityPage() {
 	const { user } = useAuth();
+	const router = useRouter();
 	const [isLiveSessionActive, setIsLiveSessionActive] = useState(false);
 	const [currentApp, setCurrentApp] = useState<any>(null);
 	const [liveActivity, setLiveActivity] = useState<any[]>([]);
@@ -136,60 +138,75 @@ export default function ActivityPage() {
 
 	// 4. Session Controls
 	const stopLiveSession = async () => {
-		if (!user) return;
+		if (!user || !activeSessionId) return;
 		setIsAnalyzing(true);
 
 		try {
-			if (activeSessionId) {
-				const sessionDocRef = doc(db, 'User', user.uid, 'Session', activeSessionId);
-				
-				// 1. Finalize Firestore
-				await updateDoc(sessionDocRef, {
-					Status: 'Completed',
-					End_Time: serverTimestamp(),
-					Updated_At: serverTimestamp(),
-				});
+			const sessionDocRef = doc(db, 'User', user.uid, 'Session', activeSessionId);
+			
+			// 1. Finalize Firestore Status IMMEDIATELY and Atomicly
+			// We do this first so the session is never 'stuck' as Active
+			await updateDoc(sessionDocRef, {
+				Status: 'Completed',
+				End_Time: serverTimestamp(),
+				Updated_At: serverTimestamp(),
+			});
 
-				// 2. Analyze using AI
-				let analysis = { Focus_Score: 70, Behavior_Pattern: "Good job.", Recommendation: "Keep it up." };
-				if (liveActivity.length > 0) {
-					const response = await fetch('/api/analyze', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ activities: liveActivity })
+			// 2. Clear RTDB Live State (Dashboard/Extension Sync)
+			const liveRef = ref(rtdb, `users/${user.uid}/liveSession`);
+			await set(liveRef, { 
+				active: false,
+				currentApp: null,
+				activities: null,
+				firestoreSessionId: null
+			});
+
+			// 3. Notify Extension to Stop
+			const EXTENSION_ID = process.env.NEXT_PUBLIC_EXTENSION_ID || 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
+			if (typeof window !== 'undefined' && (window as any).chrome?.runtime) {
+				try {
+					(window as any).chrome.runtime.sendMessage(EXTENSION_ID, {
+						action: 'SESSION_STOP',
+						active: false
 					});
-					if (response.ok) analysis = await response.json();
+				} catch (e) {
+					console.warn('Extension stop sync failed (optional):', e);
 				}
-
-				await updateDoc(sessionDocRef, {
-					Focus_Level: analysis.Focus_Score,
-					FocusAnalysis: analysis
-				});
-
-				// 3. Clear RTDB Live State
-				const liveRef = ref(rtdb, `users/${user.uid}/liveSession`);
-				await set(liveRef, { active: false });
-
-				// 4. Notify Extension to Stop Immediately
-				const EXTENSION_ID = process.env.NEXT_PUBLIC_EXTENSION_ID || 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
-				if (typeof window !== 'undefined' && (window as any).chrome?.runtime) {
-					try {
-						(window as any).chrome.runtime.sendMessage(EXTENSION_ID, {
-							action: 'SESSION_STOP',
-							active: false
-						});
-					} catch (e) {
-						console.warn('Extension stop sync failed (optional):', e);
-					}
-				}
-				
-				setIsLiveSessionActive(false);
-				setLiveActivity([]);
 			}
+
+			// 4. Analyze using AI (Critical Path - WE WAIT FOR THIS NOW)
+			// This ensures the report is READY when the user lands on the Tasks page
+			try {
+				const response = await fetch('/api/analyze', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ activities: liveActivity })
+				});
+				
+				if (response.ok) {
+					const analysis = await response.json();
+					await updateDoc(sessionDocRef, {
+						Focus_Level: analysis.Focus_Score,
+						FocusAnalysis: analysis
+					});
+				}
+			} catch (aiError) {
+				console.error("AI Analysis Error:", aiError);
+				// Silent fallback to avoid blocking the user
+			}
+
+			// 5. Success UI Lifecycle
+			setIsLiveSessionActive(false);
+			setLiveActivity([]);
 			setIsAnalyzing(false);
+			
+			// 6. Navigate to Tasks page to see the report
+			router.push('/tasks');
+			
 		} catch (e) {
 			console.error("Stop session error:", e);
 			setIsAnalyzing(false);
+			alert("Failed to complete session. Please check your connection.");
 		}
 	};
 
