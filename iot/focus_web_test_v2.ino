@@ -410,7 +410,7 @@ void setup() {
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setRotation(1); // Rotate 90 degrees left (portrait mode)
+  display.setRotation(3); // Rotate 270 degrees (upside down portrait) for 180 flip from before
   
   FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
   FastLED.setBrightness(30);
