@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { rtdb } from '@/lib/firebase';
 import { ref, onValue } from 'firebase/database';
-import { LayoutDashboard, CheckSquare, User as UserIcon, Settings, LogOut, Activity } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, User as UserIcon, Settings, LogOut, Activity, Cpu } from 'lucide-react';
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -26,6 +26,7 @@ export default function Sidebar() {
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Activity', href: '/activity', icon: Activity, live: isLive },
     { name: 'Tasks', href: '/tasks', icon: CheckSquare },
+    { name: 'Device', href: '/device', icon: Cpu },
     { name: 'Profile', href: '/profile', icon: UserIcon },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];

@@ -29,6 +29,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusText = document.getElementById('statusText');
     const historyView = document.getElementById('historyView');
     const historyList = document.getElementById('historyList');
+    const aiReasonContainer = document.getElementById('aiReasonContainer');
+    const aiReasonDisplay = document.getElementById('aiReasonDisplay');
+    const aiDurationBadge = document.getElementById('aiDurationBadge');
 
     // Settings refs
     const uidInput = document.getElementById('uidInput');
@@ -123,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Restore active session ──
-    chrome.storage.local.get(['sessionActive', 'currentTask', 'sessionEndTime', 'totalSeconds', 'aiTip'], (data) => {
+    chrome.storage.local.get(['sessionActive', 'currentTask', 'sessionEndTime', 'totalSeconds', 'aiTip', 'aiReason', 'aiDuration'], (data) => {
         if (data.sessionActive) {
             totalSeconds = data.totalSeconds || 25 * 60;
             const now = Date.now();
@@ -132,6 +135,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 remainingSeconds = Math.floor((end - now) / 1000);
                 activeTaskDisplay.textContent = data.currentTask || 'Focus Session';
                 if (data.aiTip) aiTipDisplay.textContent = data.aiTip;
+                if (data.aiReason) {
+                    aiReasonContainer.style.display = 'block';
+                    aiReasonDisplay.textContent = data.aiReason;
+                    aiDurationBadge.textContent = `⏱ AI chose ${data.aiDuration || Math.round(data.totalSeconds / 60)} min`;
+                }
                 setActiveState(true);
                 showSessionView();
                 startTimerInterval();
@@ -152,19 +160,31 @@ document.addEventListener('DOMContentLoaded', () => {
             showLoading(true);
             let tip = '';
             let aiDuration = 25;
+            let aiReason = '';
             try {
                 const stats = await GeminiHelper.analyzeTaskDuration(task);
                 tip = stats.tip || '';
                 aiDuration = stats.duration || 25;
+                aiReason = stats.reason || '';
             } catch (e) {
                 console.warn('AI analysis failed, continuing with manual time.', e);
             }
 
-            const minutes = aiDecideTime.checked ? aiDuration : (parseInt(minutesInput.value) + (parseInt(hoursInput.value) * 60) || 25);
+            const isAiTime = aiDecideTime.checked;
+            const minutes = isAiTime ? aiDuration : (parseInt(minutesInput.value) + (parseInt(hoursInput.value) * 60) || 25);
             totalSeconds = minutes * 60;
             remainingSeconds = totalSeconds;
             activeTaskDisplay.textContent = task;
             if (tip) aiTipDisplay.textContent = `"${tip}"`;
+
+            // Show AI reasoning if AI decided the time
+            if (isAiTime && aiReason) {
+                aiReasonContainer.style.display = 'block';
+                aiReasonDisplay.textContent = aiReason;
+                aiDurationBadge.textContent = `⏱ AI chose ${minutes} min`;
+            } else {
+                aiReasonContainer.style.display = 'none';
+            }
 
             const sessionStartTime = Date.now();
             const sessionEndTime = sessionStartTime + (remainingSeconds * 1000);
@@ -175,7 +195,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 totalSeconds: totalSeconds,
                 sessionStartTime: sessionStartTime,
                 sessionEndTime: sessionEndTime,
-                aiTip: tip ? `"${tip}"` : ''
+                aiTip: tip ? `"${tip}"` : '',
+                aiReason: isAiTime ? aiReason : '',
+                aiDuration: isAiTime ? minutes : null
             }, () => {
                 setActiveState(true);
                 showSessionView();
@@ -234,10 +256,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function finishSession() {
         clearInterval(timerInterval);
-        chrome.storage.local.set({ sessionActive: false, currentTask: null, sessionEndTime: null, sessionStartTime: null, aiTip: null });
+        chrome.storage.local.set({ sessionActive: false, currentTask: null, sessionEndTime: null, sessionStartTime: null, aiTip: null, aiReason: null, aiDuration: null });
         chrome.runtime.sendMessage({ action: "SESSION_ENDED" });
         isPaused = false;
         setActiveState(false);
+        aiReasonContainer.style.display = 'none';
         showHomeView();
     }
 

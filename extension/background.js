@@ -31,6 +31,21 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
 
         // Push some UI feedback to popup if open
         safeSendMessage({ action: 'AUTH_UPDATED', authenticated: true });
+    } else if (message.action === 'OPEN_SIDEPANEL') {
+        console.log('Website requested side panel open.');
+        // Open the side panel for the sender tab
+        try {
+            chrome.sidePanel.open({ tabId: sender.tab?.id }).then(() => {
+                sendResponse({ success: true });
+            }).catch((err) => {
+                console.warn('Could not open side panel:', err);
+                sendResponse({ success: false, error: err.message });
+            });
+        } catch (e) {
+            console.warn('sidePanel.open not available:', e);
+            sendResponse({ success: false, error: 'sidePanel.open not supported' });
+        }
+        return true; // Keep the message channel open for async sendResponse
     }
 });
 
@@ -65,6 +80,20 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     } else if (message.action === "SESSION_ENDED" || message.action === "SESSION_PAUSED") {
         console.log("Session stopped.");
         syncLiveStatus(false);
+        
+        // Also complete the session in Firestore
+        chrome.storage.local.get(['firestoreSessionId'], async (data) => {
+            if (data.firestoreSessionId && currentUid) {
+                console.log("Marking Firestore session as completed:", data.firestoreSessionId);
+                await FirebaseHelper.init();
+                await FirebaseHelper.completeSession(currentUid, data.firestoreSessionId);
+                
+                // Clear the session ID from storage after completion so next session starts fresh
+                if (message.action === "SESSION_ENDED") {
+                    chrome.storage.local.remove(['firestoreSessionId', 'sessionActive', 'currentTask']);
+                }
+            }
+        });
     } else if (message.action === "SESSION_RESUMED") {
         syncLiveStatus(true, { endTime: message.endTime });
     }

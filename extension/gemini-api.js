@@ -49,21 +49,28 @@ const GeminiHelper = {
     },
 
     async analyzeTaskDuration(taskDescription) {
-        const prompt = `Task: "${taskDescription}". Suggest duration (25, 50, or 90 mins). Return ONLY JSON: {"duration": 25, "tip": "contextual tip"}`;
+        const prompt = `You are a productivity coach. A user wants to focus on: "${taskDescription}".
+Suggest an optimal focus duration in MINUTES (between 5 and 40, no breaks needed). Consider task complexity, cognitive load, and typical attention spans.
+Return ONLY valid JSON: {"duration": <number 5-40>, "tip": "<short motivational tip>", "reason": "<1-2 sentence explanation of why this specific duration was chosen>"}`;
         const responseText = await this._callAPI(prompt);
 
         if (!responseText) {
-            return { duration: 25, tip: "Let's focus on your task for a standard 25-minute sprint!" };
+            return { duration: 25, tip: "Let's focus on your task for a standard 25-minute sprint!", reason: "Defaulting to a classic Pomodoro sprint since the AI couldn't analyze your task." };
         }
 
         try {
             const parsed = JSON.parse(responseText);
+            // Enforce 5-40 minute cap
+            let duration = parseInt(parsed.duration) || 25;
+            if (duration < 5) duration = 5;
+            if (duration > 40) duration = 40;
             return {
-                duration: parsed.duration || 25,
-                tip: parsed.tip || "Let's dive in."
+                duration: duration,
+                tip: parsed.tip || "Let's dive in.",
+                reason: parsed.reason || `${duration} minutes is a good focused sprint for this type of task.`
             };
         } catch (e) {
-            return { duration: 25, tip: "Stay focused!" };
+            return { duration: 25, tip: "Stay focused!", reason: "Using a standard 25-minute block as a safe default." };
         }
     },
 

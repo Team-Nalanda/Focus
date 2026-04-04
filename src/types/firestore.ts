@@ -31,8 +31,22 @@ export interface Device {
   id?: string;
   Device_Type: string;
   Operating_System: string;
+  Device_Name?: string;         // User-friendly name e.g. "Desk Monitor"
+  Firmware_Version?: string;    // e.g. "1.0.0"
+  Status?: "Online" | "Offline" | string;
+  Last_Seen?: FirestoreDate;
   Created_At: FirestoreDate;
   Updated_At: FirestoreDate;
+}
+
+export interface EnvironmentReading {
+  Temperature: number;       // °C from DHT22
+  Humidity: number;          // % from DHT22
+  Light_Level: number;       // Lux from BH1750
+  Noise_Level: number;       // 0-10 normalized scale
+  Focus_Suitability: "Excellent" | "Good" | "Fair" | "Poor" | string;
+  Suitability_Score: number; // 0-100
+  Timestamp: FirestoreDate;
 }
 
 export interface FocusAnalysis {
@@ -52,12 +66,14 @@ export interface BreakSuggestion {
 
 export interface Session {
   id?: string;
+  Task?: string; // User-defined task description for this session
   Status: "Active" | "Paused" | "Completed" | "Abandoned" | string;
   Focus_Level: number; // e.g. out of 100
   Start_Time: FirestoreDate;
   End_Time?: FirestoreDate;
   
   FocusAnalysis?: FocusAnalysis; // Embedded map for AI data
+  Environment?: EnvironmentReading; // Latest hardware environment snapshot
   BreakSuggestion: BreakSuggestion[]; // Array to capture real-time productivity alerts
   
   Created_At: FirestoreDate;
