@@ -31,6 +31,21 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
 
         // Push some UI feedback to popup if open
         safeSendMessage({ action: 'AUTH_UPDATED', authenticated: true });
+    } else if (message.action === 'OPEN_SIDEPANEL') {
+        console.log('Website requested side panel open.');
+        // Open the side panel for the sender tab
+        try {
+            chrome.sidePanel.open({ tabId: sender.tab?.id }).then(() => {
+                sendResponse({ success: true });
+            }).catch((err) => {
+                console.warn('Could not open side panel:', err);
+                sendResponse({ success: false, error: err.message });
+            });
+        } catch (e) {
+            console.warn('sidePanel.open not available:', e);
+            sendResponse({ success: false, error: 'sidePanel.open not supported' });
+        }
+        return true; // Keep the message channel open for async sendResponse
     }
 });
 
@@ -38,15 +53,15 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     if (message.action === "SESSION_STARTED") {
         console.log("Session started for:", message.task);
-        
+
         let sessionId = message.sessionId;
         if (!sessionId && currentUid) {
             sessionId = await FirebaseHelper.createSession(currentUid, { task: message.task });
             if (sessionId) {
-                chrome.storage.local.set({ 
+                chrome.storage.local.set({
                     firestoreSessionId: sessionId,
                     sessionActive: true,
-                    currentTask: message.task 
+                    currentTask: message.task
                 }, () => {
                     // Trigger immediate capture of current tab
                     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -56,15 +71,29 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             }
         }
 
-        syncLiveStatus(true, { 
-            task: message.task, 
-            startTime: message.startTime, 
+        syncLiveStatus(true, {
+            task: message.task,
+            startTime: message.startTime,
             endTime: message.endTime,
             firestoreSessionId: sessionId
         });
     } else if (message.action === "SESSION_ENDED" || message.action === "SESSION_PAUSED") {
         console.log("Session stopped.");
         syncLiveStatus(false);
+        
+        // Also complete the session in Firestore
+        chrome.storage.local.get(['firestoreSessionId'], async (data) => {
+            if (data.firestoreSessionId && currentUid) {
+                console.log("Marking Firestore session as completed:", data.firestoreSessionId);
+                await FirebaseHelper.init();
+                await FirebaseHelper.completeSession(currentUid, data.firestoreSessionId);
+                
+                // Clear the session ID from storage after completion so next session starts fresh
+                if (message.action === "SESSION_ENDED") {
+                    chrome.storage.local.remove(['firestoreSessionId', 'sessionActive', 'currentTask']);
+                }
+            }
+        });
     } else if (message.action === "SESSION_RESUMED") {
         syncLiveStatus(true, { endTime: message.endTime });
     }
@@ -74,7 +103,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     if (message.action === 'SESSION_SYNC' && message.sessionId) {
         console.log('Received Session ID from website:', message.sessionId);
-        chrome.storage.local.set({ 
+        chrome.storage.local.set({
             firestoreSessionId: message.sessionId,
             sessionActive: !!message.active
         }, () => {
@@ -103,14 +132,28 @@ async function syncLiveStatus(active, extraData = {}) {
 
 // 4. Activity Tracking (The Triple Sync)
 const INTERNAL_DOMAINS = ['localhost', '127.0.0.1', 'focus-flow-app.vercel.app'];
+const TAB_DELAY_MS = 3000; // 3s delay so user has time to navigate to their intended site
+const pendingTabTimers = new Map(); // tabId -> timeoutId (debounce per tab)
+
+function scheduleActivityCheck(tabId) {
+    // Clear any pending check for this tab (debounce)
+    if (pendingTabTimers.has(tabId)) {
+        clearTimeout(pendingTabTimers.get(tabId));
+    }
+    const timerId = setTimeout(() => {
+        pendingTabTimers.delete(tabId);
+        handleActivityChange(tabId);
+    }, TAB_DELAY_MS);
+    pendingTabTimers.set(tabId, timerId);
+}
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
-    handleActivityChange(activeInfo.tabId);
+    scheduleActivityCheck(activeInfo.tabId);
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete') {
-        handleActivityChange(tabId);
+        scheduleActivityCheck(tabId);
     }
 });
 
@@ -120,7 +163,7 @@ async function handleActivityChange(tabId) {
 
         try {
             const tab = await chrome.tabs.get(tabId);
-            if (!tab || !tab.url || tab.url.startsWith('chrome://')) return;
+            if (!tab || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('edge://') || tab.url === 'about:blank') return;
 
             const url = new URL(tab.url);
             const domain = url.hostname;
@@ -129,14 +172,19 @@ async function handleActivityChange(tabId) {
             // ── FILTER: Skip tracking the Focus App itself ──
             if (INTERNAL_DOMAINS.some(d => domain.includes(d))) {
                 console.log("Skipping focus app tracking.");
-                return; 
+                return;
             }
 
             console.log(`Tracking change to: ${title}`);
 
-            // C. AI Relevance Check
-            const evaluation = await GeminiHelper.determineRelevance(data.currentTask, tab.url);
-            const activityType = evaluation.isDistraction ? "Distracting" : "Productive";
+            // ── STEP 1: Check static rules immediately (no AI needed) ──
+            const staticDistraction = isStaticDistraction(domain);
+            const staticProductive = isStaticProductive(domain);
+            const knownType = staticDistraction ? "Distracting" : (staticProductive ? "Productive" : null);
+
+            // ── STEP 2: Send data to Firebase RIGHT AWAY using known type or Neutral ──
+            const sessionId = await getSessionIdFromStorage();
+            const immediateType = knownType || "Neutral";
 
             // A. Update RTDB Live State (Dashboard Top Monitor)
             await FirebaseHelper.updateLiveSession(currentUid, {
@@ -144,41 +192,71 @@ async function handleActivityChange(tabId) {
             });
 
             // B. Push to RTDB History (Dashboard Timeline)
-            await FirebaseHelper.pushLiveActivity(currentUid, title, activityType);
+            await FirebaseHelper.pushLiveActivity(currentUid, title, immediateType);
 
-            // D. AI Interactive Nudge Check
-            if (evaluation && evaluation.isDistraction) {
-                console.log("Distraction detected! Injecting interactive nudge...");
-                
-                // 1. Inject the styles
-                chrome.scripting.insertCSS({
-                    target: { tabId: tabId },
-                    files: ['nudge.css']
-                });
-
-                // 2. Pass the nudge message and inject the script
-                chrome.scripting.executeScript({
-                    target: { tabId: tabId },
-                    func: (msg) => { window.focusNudgeMessage = msg; },
-                    args: [evaluation.nudgeMsg || "Focus seems to be wandering off. Time to get back to work?"]
-                }).then(() => {
-                    chrome.scripting.executeScript({
-                        target: { tabId: tabId },
-                        files: ['nudge.js']
-                    });
-                });
-            }
-
-            // D. Permanent Firestore Log (Tasks & Sessions Page)
+            // C. Permanent Firestore Log — also immediate
             await FirebaseHelper.logActivity(currentUid, {
                 appName: title,
-                type: evaluation.isDistraction ? "Distracting" : "Productive",
-                sessionId: await getSessionIdFromStorage()
+                type: immediateType,
+                sessionId: sessionId
             });
+
+            // ── STEP 3: If it's a known static distraction, nudge immediately ──
+            if (staticDistraction) {
+                console.log("Static distraction detected! Injecting nudge...");
+                injectNudge(tabId, "This site is a known distraction. Time to refocus!");
+            }
+
+            // ── STEP 4: For unknown sites, run AI check in the background (non-blocking) ──
+            if (knownType === null) {
+                GeminiHelper.determineRelevance(data.currentTask, tab.url).then((evaluation) => {
+                    if (!evaluation) return;
+                    if (evaluation.isDistraction) {
+                        console.log("AI distraction detected! Injecting nudge...");
+                        injectNudge(tabId, evaluation.nudgeMsg || "Focus seems to be wandering. Time to get back to work?");
+                        // Update logs with the AI-refined type
+                        FirebaseHelper.pushLiveActivity(currentUid, title, "Distracting").catch(() => { });
+                        FirebaseHelper.logActivity(currentUid, {
+                            appName: title,
+                            type: "Distracting",
+                            sessionId: sessionId
+                        }).catch(() => { });
+                    }
+                }).catch((err) => {
+                    console.warn("AI check failed (non-critical):", err.message);
+                });
+            }
 
         } catch (e) {
             console.error("Activity tracking error:", e);
         }
+    });
+}
+
+function isStaticDistraction(domain) {
+    const STATIC_DISTRACTIONS = ['x.com', 'facebook.com', 'youtube.com', 'twitter.com', 'instagram.com', 'netflix.com', 'reddit.com', 'tiktok.com', 'twitch.tv'];
+    return STATIC_DISTRACTIONS.some(d => domain.includes(d));
+}
+
+function isStaticProductive(domain) {
+    const STATIC_PRODUCTIVE = ['github.com', 'stackoverflow.com', 'localhost', 'docs.google.com', 'visualstudio.com', 'npmjs.com', 'pnpm.io'];
+    return STATIC_PRODUCTIVE.some(d => domain.includes(d));
+}
+
+function injectNudge(tabId, message) {
+    // Set the message on the page then inject nudge.js
+    // nudge.js self-loads its CSS via Shadow DOM + chrome.runtime.getURL
+    chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: (msg) => { window.focusNudgeMessage = msg; },
+        args: [message]
+    }).then(() => {
+        chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['nudge.js']
+        });
+    }).catch((err) => {
+        console.warn('Could not inject nudge into tab:', err.message);
     });
 }
 

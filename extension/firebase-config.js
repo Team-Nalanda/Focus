@@ -48,6 +48,35 @@ const FirebaseHelper = {
         }
     },
 
+    // ── Firestore: Complete Session ──
+    async completeSession(uid, sessionId) {
+        if (!this._config.projectId || !sessionId) return false;
+
+        const projectId = this._config.projectId;
+        // Use PATCH with updateMask for partial document update
+        const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/User/${uid}/Session/${sessionId}?updateMask.fieldPaths=Status&updateMask.fieldPaths=End_Time&updateMask.fieldPaths=Updated_At`;
+
+        const docData = {
+            fields: {
+                Status: { stringValue: "Completed" },
+                End_Time: { timestampValue: new Date().toISOString() },
+                Updated_At: { timestampValue: new Date().toISOString() }
+            }
+        };
+
+        try {
+            const resp = await fetch(endpoint, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(docData)
+            });
+            return resp.ok;
+        } catch (err) {
+            console.error('Firestore Complete Session Error:', err);
+            return false;
+        }
+    },
+
     // ── Firestore: Permanent Activity Log ──
     async logActivity(uid, activity) {
         if (!this._config.projectId || !activity.sessionId) {

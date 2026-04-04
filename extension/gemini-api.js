@@ -3,7 +3,8 @@ const STATIC_PRODUCTIVE = ['github.com', 'stackoverflow.com', 'localhost', 'docs
 
 const GeminiHelper = {
     _apiKey: "AIzaSyBchvpvM6w_Z49IHwhNmHzXXRIJeXm1XTA",
-    _model: "gemma-4-31b-it",
+    _model: "gemini-2.5-flash-lite",
+    _timeoutMs: 8000, // 8s timeout — gemini-2.5-flash-lite is fast, this is generous
 
     async init() {
         return Promise.resolve(true);
@@ -15,16 +16,23 @@ const GeminiHelper = {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this._model}:generateContent?key=${this._apiKey}`;
 
         try {
-            const response = await fetch(endpoint, {
+            // Race the fetch against a timeout so we never block indefinitely
+            const fetchPromise = fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }]
                 })
             });
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Gemini timeout')), this._timeoutMs)
+            );
+
+            const response = await Promise.race([fetchPromise, timeoutPromise]);
 
             if (!response.ok) {
-                console.warn('Gemini AI Issue: Switching to Safety Mode.');
+                const errBody = await response.text().catch(() => 'no body');
+                console.warn(`Gemini AI Error ${response.status}: ${errBody}`);
                 return null;
             }
 
@@ -35,27 +43,34 @@ const GeminiHelper = {
             // Clean markdown blocks
             return text.replace(/```json/g, '').replace(/```/g, '').trim();
         } catch (err) {
-            console.error('Gemini AI Connectivity Error:', err);
+            console.warn('Gemini AI Connectivity/Timeout:', err.message);
             return null;
         }
     },
 
     async analyzeTaskDuration(taskDescription) {
-        const prompt = `Task: "${taskDescription}". Suggest duration (25, 50, or 90 mins). Return ONLY JSON: {"duration": 25, "tip": "contextual tip"}`;
+        const prompt = `You are a productivity coach. A user wants to focus on: "${taskDescription}".
+Suggest an optimal focus duration in MINUTES (between 5 and 40, no breaks needed). Consider task complexity, cognitive load, and typical attention spans.
+Return ONLY valid JSON: {"duration": <number 5-40>, "tip": "<short motivational tip>", "reason": "<1-2 sentence explanation of why this specific duration was chosen>"}`;
         const responseText = await this._callAPI(prompt);
-        
+
         if (!responseText) {
-            return { duration: 25, tip: "Let's focus on your task for a standard 25-minute sprint!" };
+            return { duration: 25, tip: "Let's focus on your task for a standard 25-minute sprint!", reason: "Defaulting to a classic Pomodoro sprint since the AI couldn't analyze your task." };
         }
 
         try {
             const parsed = JSON.parse(responseText);
+            // Enforce 5-40 minute cap
+            let duration = parseInt(parsed.duration) || 25;
+            if (duration < 5) duration = 5;
+            if (duration > 40) duration = 40;
             return {
-                duration: parsed.duration || 25,
-                tip: parsed.tip || "Let's dive in."
+                duration: duration,
+                tip: parsed.tip || "Let's dive in.",
+                reason: parsed.reason || `${duration} minutes is a good focused sprint for this type of task.`
             };
         } catch (e) {
-            return { duration: 25, tip: "Stay focused!" };
+            return { duration: 25, tip: "Stay focused!", reason: "Using a standard 25-minute block as a safe default." };
         }
     },
 
@@ -74,7 +89,7 @@ const GeminiHelper = {
         // 2. Try the AI
         const prompt = `Goal: "${taskName}". URL: "${currentUrl}". Is it helpful or distracting? Return ONLY JSON: {"isDistraction": true_or_false, "nudgeMsg": "nudge if true"}`;
         const responseText = await this._callAPI(prompt);
-        
+
         if (!responseText) {
             return { isDistraction: false, nudgeMsg: "" };
         }

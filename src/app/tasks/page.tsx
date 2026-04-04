@@ -15,6 +15,11 @@ export default function TasksPage() {
   const [sessionActivities, setSessionActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const handleCompleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -132,6 +137,8 @@ export default function TasksPage() {
     return 'text-red-400';
   };
 
+  if (!isMounted) return <AppLayout><div className="h-full bg-black" /></AppLayout>;
+
   return (
     <AppLayout>
       <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -153,17 +160,22 @@ export default function TasksPage() {
                 <div className="p-8 text-center text-neutral-500 text-sm italic">No focus history found. <br/> Start your first session to begin tracking.</div>
               ) : (
                 sessions.map((session, index) => (
-                <button
+                <div
                   key={session.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedSession(session)}
-                  className={`group flex flex-col items-start p-5 border-l-2 transition-all hover:bg-neutral-900/50 ${
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedSession(session); } }}
+                  className={`group flex flex-col items-start p-5 border-l-2 transition-all hover:bg-neutral-900/50 cursor-pointer ${
                     selectedSession?.id === session.id 
                       ? 'border-white bg-neutral-900/80' 
                       : 'border-transparent text-neutral-400'
                   }`}
                 >
                   <div className="flex justify-between items-center w-full mb-1">
-                    <span className="text-sm font-medium text-white">Session {sessions.length - index}</span>
+                    <span className="text-sm font-medium text-white truncate max-w-[160px]" title={session.Task || `Session ${sessions.length - index}`}>
+                      {session.Task || `Session ${sessions.length - index}`}
+                    </span>
                     <div className="flex items-center gap-2">
                       {session.Status === 'Completed' ? (
                         <CheckCircle2 size={16} className="text-emerald-400" />
@@ -196,7 +208,7 @@ export default function TasksPage() {
                         : 'Recent'}
                     </span>
                   </div>
-                </button>
+                </div>
               ))
               )}
             </div>
@@ -213,6 +225,18 @@ export default function TasksPage() {
                 
                 {/* Header Info */}
                 <div className="space-y-4">
+                  <div className="space-y-2">
+                    {selectedSession.Task && (
+                      <h2 className="text-2xl font-medium tracking-tight text-white">
+                        {selectedSession.Task}
+                      </h2>
+                    )}
+                    {selectedSession.id && (
+                      <span className="inline-block text-[10px] font-mono text-neutral-600 bg-neutral-900 border border-neutral-800 px-2 py-0.5 rounded">
+                        ID: {selectedSession.id}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center space-x-3 text-sm text-neutral-400">
                     <Clock size={16} className="text-neutral-500" />
                     <span>Duration: {(() => {
@@ -223,7 +247,7 @@ export default function TasksPage() {
                       }
                       return selectedSession.Status === 'Active' ? 'Ongoing...' : 'Unknown';
                     })()}</span>
-                    <span className="text-neutral-700">•</span>
+                    <span className="text-neutral-700">&bull;</span>
                     <span className="flex items-center gap-1.5">
                       Status: 
                       <span className={`capitalize ${

@@ -1,103 +1,263 @@
-#focus-nudge-overlay {
+/* ── FocusFlow AI In-Page Nudge Popup ─────────────────────────────────── */
+/* Injected directly into the page — immune to OS Do Not Disturb mode      */
+
+#focus-nudge-root {
+    all: initial !important;
     position: fixed !important;
+    bottom: 24px !important;
+    right: 24px !important;
+    z-index: 2147483647 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif !important;
+    pointer-events: none !important;
+}
+
+#focus-nudge-card {
+    all: initial !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    width: 340px !important;
+    background: #0a0a0a !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 20px !important;
+    overflow: hidden !important;
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.04),
+        0 32px 64px -16px rgba(0, 0, 0, 0.8),
+        0 0 40px rgba(16, 185, 129, 0.08) !important;
+    pointer-events: all !important;
+    animation: focusNudgeSlideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both !important;
+    position: relative !important;
+}
+
+#focus-nudge-card.focus-nudge-leaving {
+    animation: focusNudgeSlideOut 0.35s cubic-bezier(0.4, 0, 1, 1) both !important;
+}
+
+@keyframes focusNudgeSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes focusNudgeSlideOut {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(16px) scale(0.96);
+    }
+}
+
+/* Progress bar at top */
+#focus-nudge-progress-track {
+    all: initial !important;
+    display: block !important;
+    height: 2px !important;
+    width: 100% !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    position: absolute !important;
     top: 0 !important;
     left: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    background: rgba(0, 0, 0, 0.85) !important;
-    backdrop-filter: blur(10px) !important;
-    z-index: 2147483647 !important;
+}
+
+#focus-nudge-progress-bar {
+    all: initial !important;
+    display: block !important;
+    height: 2px !important;
+    width: 100% !important;
+    background: linear-gradient(90deg, #10b981, #34d399) !important;
+    transform-origin: left !important;
+    transition: transform linear !important;
+}
+
+/* Body */
+#focus-nudge-body {
+    all: initial !important;
     display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    padding: 20px 20px 16px !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-    color: white !important;
-    animation: focusFadeIn 0.4s ease-out !important;
 }
 
-@keyframes focusFadeIn {
-    from { opacity: 0; backdrop-filter: blur(0px); }
-    to { opacity: 1; backdrop-filter: blur(10px); }
-}
-
-.focus-nudge-content {
-    background: #0f0f0f !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    padding: 40px !important;
-    border-radius: 24px !important;
-    max-width: 450px !important;
-    width: 90% !important;
-    text-align: center !important;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
-    animation: focusSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) !important;
-}
-
-@keyframes focusSlideUp {
-    from { transform: translateY(20px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
-}
-
-.focus-nudge-icon {
-    width: 64px !important;
-    height: 64px !important;
-    background: rgba(16, 185, 129, 0.1) !important;
-    border-radius: 50% !important;
+/* Header row */
+#focus-nudge-header {
+    all: initial !important;
     display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    margin: 0 auto 24px !important;
-    color: #10b981 !important;
-}
-
-.focus-nudge-title {
-    font-size: 24px !important;
-    font-weight: 300 !important;
-    margin-bottom: 12px !important;
-    letter-spacing: -0.02em !important;
-}
-
-.focus-nudge-msg {
-    font-size: 15px !important;
-    color: #a3a3a3 !important;
-    line-height: 1.6 !important;
-    margin-bottom: 32px !important;
-    font-weight: 300 !important;
-}
-
-.focus-nudge-footer {
-    display: flex !important;
+    align-items: flex-start !important;
     gap: 12px !important;
 }
 
-.focus-nudge-btn {
-    flex: 1 !important;
-    padding: 12px 20px !important;
+#focus-nudge-icon-wrap {
+    all: initial !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 38px !important;
+    height: 38px !important;
+    min-width: 38px !important;
+    background: rgba(16, 185, 129, 0.12) !important;
     border-radius: 12px !important;
-    font-size: 14px !important;
-    font-weight: 500 !important;
+    color: #10b981 !important;
+}
+
+#focus-nudge-icon-wrap svg {
+    display: block !important;
+}
+
+#focus-nudge-text-group {
+    all: initial !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 3px !important;
+    flex: 1 !important;
+}
+
+#focus-nudge-label {
+    all: initial !important;
+    display: block !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+    color: #10b981 !important;
+    font-family: inherit !important;
+}
+
+#focus-nudge-title {
+    all: initial !important;
+    display: block !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    color: #ffffff !important;
+    letter-spacing: -0.01em !important;
+    line-height: 1.3 !important;
+    font-family: inherit !important;
+}
+
+#focus-nudge-close {
+    all: initial !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    border-radius: 8px !important;
     cursor: pointer !important;
-    transition: all 0.2s ease !important;
+    color: rgba(255,255,255,0.35) !important;
+    transition: color 0.15s, background 0.15s !important;
+    background: transparent !important;
     border: none !important;
     outline: none !important;
 }
 
-.focus-nudge-btn-primary {
-    background: white !important;
-    color: black !important;
+#focus-nudge-close:hover {
+    color: rgba(255,255,255,0.8) !important;
+    background: rgba(255,255,255,0.06) !important;
 }
 
-.focus-nudge-btn-primary:hover {
-    background: #e5e5e5 !important;
-    transform: translateY(-1px) !important;
+#focus-nudge-message {
+    all: initial !important;
+    display: block !important;
+    font-size: 13.5px !important;
+    color: rgba(255,255,255,0.5) !important;
+    line-height: 1.6 !important;
+    font-family: inherit !important;
+    font-weight: 400 !important;
 }
 
-.focus-nudge-btn-secondary {
-    background: rgba(255, 255, 255, 0.05) !important;
-    color: #a3a3a3 !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+/* Footer actions */
+#focus-nudge-footer {
+    all: initial !important;
+    display: flex !important;
+    gap: 8px !important;
+    padding: 0 20px 18px !important;
+    font-family: inherit !important;
 }
 
-.focus-nudge-btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.1) !important;
-    color: white !important;
+.focus-nudge-btn {
+    all: initial !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 6px !important;
+    padding: 9px 14px !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    border: none !important;
+    outline: none !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    transition: opacity 0.15s, transform 0.15s !important;
+    letter-spacing: -0.01em !important;
+    white-space: nowrap !important;
+}
+
+.focus-nudge-btn:active {
+    transform: scale(0.97) !important;
+}
+
+#focus-nudge-btn-back {
+    background: #10b981 !important;
+    color: #000 !important;
+    flex: 1 !important;
+}
+
+#focus-nudge-btn-back:hover {
+    opacity: 0.88 !important;
+}
+
+#focus-nudge-btn-snooze {
+    background: rgba(255,255,255,0.06) !important;
+    color: rgba(255,255,255,0.55) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+}
+
+#focus-nudge-btn-snooze:hover {
+    background: rgba(255,255,255,0.1) !important;
+    color: rgba(255,255,255,0.8) !important;
+}
+
+#focus-nudge-btn-end {
+    background: rgba(239,68,68,0.08) !important;
+    color: #f87171 !important;
+    border: 1px solid rgba(239,68,68,0.15) !important;
+}
+
+#focus-nudge-btn-end:hover {
+    background: rgba(239,68,68,0.16) !important;
+}
+
+/* Snooze countdown badge */
+#focus-nudge-snooze-badge {
+    all: initial !important;
+    display: none !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 6px 12px !important;
+    background: rgba(16, 185, 129, 0.08) !important;
+    border-top: 1px solid rgba(255,255,255,0.05) !important;
+    font-size: 12px !important;
+    color: rgba(255,255,255,0.35) !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}
+
+#focus-nudge-snooze-badge.visible {
+    display: flex !important;
+}
+
+#focus-nudge-snooze-time {
+    color: #10b981 !important;
+    font-weight: 600 !important;
+    font-variant-numeric: tabular-nums !important;
 }

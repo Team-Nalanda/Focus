@@ -30,7 +30,17 @@
   "side_panel": {
     "default_path": "popup.html"
   },
-  "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "nudge.js",
+        "icons/*.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

@@ -9,14 +9,11 @@ import {
 	getDocs,
 	query,
 	orderBy,
-	limit,
 	doc,
-	setDoc,
-	addDoc,
 	updateDoc,
 	serverTimestamp,
 } from 'firebase/firestore';
-import { Session, FocusAnalysis } from '@/types/firestore';
+import { Session } from '@/types/firestore';
 import {
 	BarChart,
 	Bar,
@@ -33,21 +30,14 @@ import {
 	Zap,
 	Target,
 	Clock,
-	Activity,
 	Play,
 	CheckSquare,
-	Monitor,
-	Loader2,
-	Sparkles,
 } from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
 import { rtdb } from '@/lib/firebase';
 import {
 	ref,
 	onValue,
 	set,
-	push,
-	serverTimestamp as rtdbTimestamp,
 } from 'firebase/database';
 
 export default function Dashboard() {
@@ -58,6 +48,11 @@ export default function Dashboard() {
 	const [chartData, setChartData] = useState<any[]>([]);
 	const [isSessionLive, setIsSessionLive] = useState(false);
 	const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+	const [isMounted, setIsMounted] = useState(false);
+
+	useEffect(() => {
+		setIsMounted(true);
+	}, []);
 
 	useEffect(() => {
 		async function fetchData() {
@@ -149,52 +144,43 @@ export default function Dashboard() {
 		setStartingExtension(true);
 		if (!user) return;
 
+		const EXTENSION_ID = 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
+
 		try {
-			// 1. Create a real Firestore Session document
-			const sessionRef = await addDoc(
-				collection(db, 'User', user.uid, 'Session'),
-				{
-					Status: 'Active',
-					Focus_Level: 0,
-					Start_Time: serverTimestamp(),
-					Created_At: serverTimestamp(),
-					Updated_At: serverTimestamp(),
-					BreakSuggestion: [],
-				},
-			);
-
-			// 2. Initialize RTDB for realtime extension tracking
-			const rtdbSessionRef = ref(rtdb, `users/${user.uid}/liveSession`);
-			await set(rtdbSessionRef, {
-				active: true,
-				firestoreSessionId: sessionRef.id,
-				currentApp: { name: 'Focus Starting...', startTime: Date.now() },
-				activities: {},
-			});
-
-			// 3. Sync Session ID to extension directly
-			const EXTENSION_ID = 'kkfojgfjhkhcgpodfdeldhnnnbabegee';
 			if (typeof window !== 'undefined' && (window as any).chrome?.runtime) {
-				try {
-					(window as any).chrome.runtime.sendMessage(EXTENSION_ID, {
-						action: 'SESSION_SYNC',
-						sessionId: sessionRef.id,
-						active: true
-					});
-				} catch (e) {
-					console.warn('Extension sync failed (optional):', e);
-				}
+				(window as any).chrome.runtime.sendMessage(
+					EXTENSION_ID,
+					{ action: 'OPEN_SIDEPANEL' },
+					(response: any) => {
+						if (response?.success) {
+							console.log('Side panel opened successfully.');
+						} else {
+							console.warn('Could not open side panel:', response?.error);
+							alert('Please click the Focus extension icon in your toolbar to start a session.');
+						}
+						setStartingExtension(false);
+					}
+				);
+			} else {
+				alert('Chrome extension not detected. Please install the FocusFlow extension and refresh this page.');
+				setStartingExtension(false);
 			}
-
-			setStartingExtension(false);
 		} catch (e) {
 			console.error('Start session error:', e);
+			alert('Please click the Focus extension icon in your toolbar to start a session.');
 			setStartingExtension(false);
 		}
 	};
 
 	const handleStopSession = async () => {
 		if (!user || !activeSessionId) return;
+
+		// Confirmation dialog
+		const confirmed = window.confirm(
+			'Are you sure you want to end this focus session? Your activity data will be analyzed.'
+		);
+		if (!confirmed) return;
+
 		setStartingExtension(true); // Loading state
 
 		try {
@@ -318,7 +304,7 @@ export default function Dashboard() {
 									<Play size={18} className="fill-black" />
 								)}
 								<span>
-									{startingExtension ? 'Connecting...' : 'Start Extension'}
+									{startingExtension ? 'Opening...' : 'Start Focus Session'}
 								</span>
 							</button>
 						)}
@@ -399,52 +385,54 @@ export default function Dashboard() {
 							Focus Trend line (Last 7 Days)
 						</h3>
 						<div className="flex-1 w-full min-h-[250px]">
-							<ResponsiveContainer width="100%" height="100%">
-								<AreaChart
-									data={chartData}
-									margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
-								>
-									<defs>
-										<linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-											<stop offset="5%" stopColor="#fff" stopOpacity={0.15} />
-											<stop offset="95%" stopColor="#fff" stopOpacity={0} />
-										</linearGradient>
-									</defs>
-									<CartesianGrid
-										strokeDasharray="3 3"
-										vertical={false}
-										stroke="#222"
-									/>
-									<XAxis
-										dataKey="day"
-										axisLine={false}
-										tickLine={false}
-										tick={{ fill: '#666', fontSize: 12 }}
-										dy={10}
-									/>
-									<YAxis
-										axisLine={false}
-										tickLine={false}
-										tick={{ fill: '#666', fontSize: 12 }}
-									/>
-									<Tooltip
-										contentStyle={{
-											backgroundColor: '#111',
-											borderColor: '#333',
-											borderRadius: '8px',
-										}}
-										itemStyle={{ color: '#fff' }}
-									/>
-									<Area
-										type="monotone"
-										dataKey="score"
-										stroke="#fff"
-										strokeWidth={2}
-										fillOpacity={1}
-										fill="url(#colorScore)"
-									/>
-								</AreaChart>
-							</ResponsiveContainer>
+							{isMounted && (
+								<ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+									<AreaChart
+										data={chartData}
+										margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
+									>
+										<defs>
+											<linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+												<stop offset="5%" stopColor="#fff" stopOpacity={0.15} />
+												<stop offset="95%" stopColor="#fff" stopOpacity={0} />
+											</linearGradient>
+										</defs>
+										<CartesianGrid
+											strokeDasharray="3 3"
+											vertical={false}
+											stroke="#222"
+										/>
+										<XAxis
+											dataKey="day"
+											axisLine={false}
+											tickLine={false}
+											tick={{ fill: '#666', fontSize: 12 }}
+											dy={10}
+										/>
+										<YAxis
+											axisLine={false}
+											tickLine={false}
+											tick={{ fill: '#666', fontSize: 12 }}
+										/>
+										<Tooltip
+											contentStyle={{
+												backgroundColor: '#111',
+												borderColor: '#333',
+												borderRadius: '8px',
+											}}
+											itemStyle={{ color: '#fff' }}
+										/>
+										<Area
+											type="monotone"
+											dataKey="score"
+											stroke="#fff"
+											strokeWidth={2}
+											fillOpacity={1}
+											fill="url(#colorScore)"
+										/>
+									</AreaChart>
+								</ResponsiveContainer>
+							)}
 						</div>
 					</div>
 
@@ -453,40 +441,42 @@ export default function Dashboard() {
 							Activity Duration (Hrs)
 						</h3>
 						<div className="flex-1 w-full min-h-[250px]">
-							<ResponsiveContainer width="100%" height="100%">
-								<BarChart
-									data={chartData}
-									margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
-								>
-									<CartesianGrid
-										strokeDasharray="3 3"
-										vertical={false}
-										stroke="#222"
-									/>
-									<XAxis
-										dataKey="day"
-										axisLine={false}
-										tickLine={false}
-										tick={{ fill: '#666', fontSize: 12 }}
-										dy={10}
-									/>
-									<YAxis
-										axisLine={false}
-										tickLine={false}
-										tick={{ fill: '#666', fontSize: 12 }}
-									/>
-									<Tooltip
-										cursor={{ fill: '#1a1a1a' }}
-										contentStyle={{
-											backgroundColor: '#111',
-											borderColor: '#333',
-											borderRadius: '8px',
-										}}
-										itemStyle={{ color: '#fff' }}
-									/>
-									<Bar dataKey="duration" fill="#444" radius={[4, 4, 0, 0]} />
-								</BarChart>
-							</ResponsiveContainer>
+							{isMounted && (
+								<ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+									<BarChart
+										data={chartData}
+										margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
+									>
+										<CartesianGrid
+											strokeDasharray="3 3"
+											vertical={false}
+											stroke="#222"
+										/>
+										<XAxis
+											dataKey="day"
+											axisLine={false}
+											tickLine={false}
+											tick={{ fill: '#666', fontSize: 12 }}
+											dy={10}
+										/>
+										<YAxis
+											axisLine={false}
+											tickLine={false}
+											tick={{ fill: '#666', fontSize: 12 }}
+										/>
+										<Tooltip
+											cursor={{ fill: '#1a1a1a' }}
+											contentStyle={{
+												backgroundColor: '#111',
+												borderColor: '#333',
+												borderRadius: '8px',
+											}}
+											itemStyle={{ color: '#fff' }}
+										/>
+										<Bar dataKey="duration" fill="#444" radius={[4, 4, 0, 0]} />
+									</BarChart>
+								</ResponsiveContainer>
+							)}
 						</div>
 					</div>
 				</div>

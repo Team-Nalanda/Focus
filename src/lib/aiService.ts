@@ -2,7 +2,7 @@ export async function getLiveFocusTip(activities: any[]) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return "Focus on the task at hand.";
 
-  const model = "gemma-4-31b-it";
+  const model = "gemini-2.5-flash-lite";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const recentLog = activities
@@ -41,7 +41,7 @@ export async function analyzeSessionActivity(activities: any[]) {
     throw new Error("GEMINI_API_KEY is not defined in environment variables.");
   }
 
-  const model = "gemma-4-31b-it";
+  const model = "gemini-2.5-flash-lite";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const activityLog = activities
@@ -83,7 +83,7 @@ export async function analyzeSessionActivity(activities: any[]) {
     const data = await response.json();
     const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     console.log("Raw Gemma Report:", textResponse);
-    
+
     if (!textResponse) {
       throw new Error("Gemma returned an empty intelligence report.");
     }
@@ -91,7 +91,7 @@ export async function analyzeSessionActivity(activities: any[]) {
     // Ultra-Robust Extraction: Clean markdown artifacts and find first/last curly braces
     let cleanedText = textResponse.replace(/```json/g, "").replace(/```/g, "").trim();
     const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
-    
+
     if (!jsonMatch) {
       // Emergency Fallback: If no JSON at all, check if it's just raw text containing the info
       console.warn("AI didn't return JSON structure. Attempting raw extraction...");
