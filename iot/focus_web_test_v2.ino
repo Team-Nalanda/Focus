@@ -24,6 +24,8 @@
 #include <Adafruit_SSD1306.h>
 #include <DHT.h>
 #include <BH1750.h>
+#define FASTLED_INTERRUPT_RETRY_COUNT 0
+#define FASTLED_ESP8266_RAW_PIN_ORDER
 #include <FastLED.h>
 
 // ============================================================
@@ -275,14 +277,16 @@ void pollForActiveSession() {
 }
 
 void pushEnvironmentData() {
-  if (!wifiConnected || !sessionActive || sessionId.length() == 0) return;
+  if (!wifiConnected) return;
   
   HTTPClient http;
   String url = String(API_BASE_URL) + "/api/hardware";
   
   JsonDocument doc;
   doc["uid"] = USER_UID;
-  doc["sessionId"] = sessionId;
+  if (sessionActive && sessionId.length() > 0) {
+    doc["sessionId"] = sessionId;
+  }
   doc["deviceId"] = DEVICE_ID;
   
   JsonObject env = doc["environment"].to<JsonObject>();
