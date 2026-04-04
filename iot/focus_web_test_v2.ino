@@ -24,8 +24,6 @@
 #include <Adafruit_SSD1306.h>
 #include <DHT.h>
 #include <BH1750.h>
-#define FASTLED_INTERRUPT_RETRY_COUNT 0
-#define FASTLED_ESP8266_RAW_PIN_ORDER
 #include <FastLED.h>
 
 // ============================================================
@@ -39,7 +37,7 @@ const char* WIFI_PASSWORD  = "Rysera@123";
 // API & Firebase
 const char* API_BASE_URL   = "http://192.168.43.149:3000"; 
 const char* DEVICE_TOKEN   = "focusflow-device-secret-2026";
-const char* USER_UID       = "WzPW9tjYXKew6ucALd3BsgVzE1F3";
+const char* USER_UID       = "ZyaHsPSBUbWchggY9bkY7h9UNR12";
 
 // Dynamic Device Info
 String DEVICE_ID;
@@ -277,16 +275,14 @@ void pollForActiveSession() {
 }
 
 void pushEnvironmentData() {
-  if (!wifiConnected) return;
+  if (!wifiConnected || !sessionActive || sessionId.length() == 0) return;
   
   HTTPClient http;
   String url = String(API_BASE_URL) + "/api/hardware";
   
   JsonDocument doc;
   doc["uid"] = USER_UID;
-  if (sessionActive && sessionId.length() > 0) {
-    doc["sessionId"] = sessionId;
-  }
+  doc["sessionId"] = sessionId;
   doc["deviceId"] = DEVICE_ID;
   
   JsonObject env = doc["environment"].to<JsonObject>();
@@ -361,35 +357,33 @@ void updateDisplay() {
   display.clearDisplay();
   
   // Header
-  display.setCursor(0, 0); 
-  display.println("FocusFlow");
-  display.println(wifiConnected ? "SYNCING..." : "OFFLINE");
-  display.drawLine(0, 18, 64, 18, WHITE);
+  display.setCursor(10, 0); display.print("FocusFlow");
+  display.setCursor(90, 0); display.print(wifiConnected ? "V2_OK" : "OFFL");
+  display.drawLine(0, 10, 128, 10, WHITE);
   
   // Status Bar
-  display.setCursor(0, 22);
-  display.println(sessionActive ? "SESSION" : "WAITING");
-  display.println(sessionActive ? "ACTIVE" : "FOR SES");
-  display.drawLine(0, 42, 64, 42, WHITE);
+  display.setCursor(0, 13);
+  display.print(sessionActive ? "SESSION ACTIVE" : "Waiting for session");
+  display.drawLine(0, 22, 128, 22, WHITE);
   
   // Sensor Data
-  display.setCursor(0, 46);
-  display.print("T: "); display.print(currentTemp, 1); display.println("C");
-  display.print("H: "); display.print(currentHum, 0);  display.println("%");
+  display.setCursor(0, 25);
+  display.print("T:"); display.print(currentTemp, 1); display.print("C  ");
+  display.print("H:"); display.print(currentHum, 0);  display.print("%");
   
-  display.setCursor(0, 70);
-  display.print("L: "); display.print(currentLux, 0);  display.println("lx");
-  display.print("N: "); display.print(constrain(map(noiseLevel, 0, 1023, 0, 10), 0, 10)); display.println("/10");
+  display.setCursor(0, 35);
+  display.print("L:"); display.print(currentLux, 0);  display.print("lx ");
+  display.print("N:"); display.print(constrain(map(noiseLevel, 0, 1023, 0, 10), 0, 10)); display.print("/10");
   
   // Result
-  display.drawLine(0, 95, 64, 95, WHITE);
-  display.setCursor(0, 100);
+  display.drawLine(0, 45, 128, 45, WHITE);
+  display.setCursor(0, 48);
   if (sessionActive) {
-    display.print("Scr: "); display.println(suitabilityScore);
-    display.print("> "); display.println(suitabilityTier);
+    display.print("Score: "); display.print(suitabilityScore); display.print("/100");
+    display.setCursor(0, 57); display.print("> "); display.print(suitabilityTier);
   } else {
-    display.println("ID:");
-    display.println(DEVICE_ID);
+    display.print("Device ID: ");
+    display.setCursor(0, 57); display.print(DEVICE_ID);
   }
   display.display();
 }
@@ -412,10 +406,8 @@ void setup() {
   lightMeter.begin();
   
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setRotation(3); // Rotate 270 degrees (upside down portrait) for 180 flip from before
-  
+  display.setRotation(2); // Rotate 180 degrees (or change to 1/3 for 90/270 degrees)
   FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
   FastLED.setBrightness(30);
   updateLEDStatus(); // Set to standby dim
