@@ -201,7 +201,14 @@ export default function TasksPage() {
                     </div>
                   </div>
                   <div className="flex justify-between text-[10px] text-neutral-500 w-full text-left uppercase tracking-wider font-medium">
-                    <span>Score: {session.FocusAnalysis?.Focus_Score || session.Focus_Level || 0}%</span>
+                    <div className="space-x-3">
+                      <span>Score: {session.FocusAnalysis?.Focus_Score || session.Focus_Level || 0}%</span>
+                      {session.Environment?.Suitability_Score && (
+                        <span className={getScoreColor(session.Environment.Suitability_Score)}>
+                          Env: {session.Environment.Suitability_Score}
+                        </span>
+                      )}
+                    </div>
                     <span>
                       {(session.Start_Time as any)?.toDate 
                         ? (session.Start_Time as any).toDate().toLocaleDateString()
@@ -263,6 +270,14 @@ export default function TasksPage() {
                     <span className={getScoreColor(selectedSession.FocusAnalysis?.Focus_Score || selectedSession.Focus_Level || 0)}>
                       {selectedSession.FocusAnalysis?.Focus_Score || selectedSession.Focus_Level || '0'}
                     </span>
+                    {selectedSession.Environment?.Suitability_Score && (
+                      <>
+                        <span className="text-neutral-500 text-2xl font-light ml-4">Env Score:</span>
+                        <span className={getScoreColor(selectedSession.Environment.Suitability_Score)}>
+                          {selectedSession.Environment.Suitability_Score}
+                        </span>
+                      </>
+                    )}
                   </h2>
                 </div>
 

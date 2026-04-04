@@ -6,6 +6,8 @@ import { rtdb } from '@/lib/firebase';
 import { ref, onValue } from 'firebase/database';
 import { LayoutDashboard, CheckSquare, User as UserIcon, Settings, LogOut, Activity, Cpu } from 'lucide-react';
 
+import Image from 'next/image';
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
@@ -34,7 +36,16 @@ export default function Sidebar() {
   return (
     <aside className="w-64 h-full bg-black border-r border-[#222] flex flex-col justify-between hidden md:flex shrink-0">
       <div className="p-8">
-        <h1 className="text-2xl font-semibold tracking-widest text-white mb-12">FOCUS.</h1>
+        <div className="mb-12 flex items-center space-x-3">
+          <Image 
+            src="/focus-logo-circle.jpg" 
+            alt="Focus Logo" 
+            width={40} 
+            height={40} 
+            className="rounded-full"
+          />
+          <h1 className="text-2xl font-semibold tracking-widest text-white">FOCUS</h1>
+        </div>
         <nav className="space-y-4">
           {navItems.map((item) => {
             const Icon = item.icon;

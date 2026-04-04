@@ -96,38 +96,39 @@ bool   wifiConnected  = false;
 
 int scoreTemperature(float temp) {
   if (isnan(temp)) return 50;
-  if (temp >= 20.0 && temp <= 24.0) return 100;
-  if (temp >= 18.0 && temp < 20.0)  return 75;
-  if (temp > 24.0 && temp <= 26.0)  return 75;
-  if (temp >= 16.0 && temp < 18.0)  return 50;
-  if (temp > 26.0 && temp <= 28.0)  return 50;
-  return 25;
+  if (temp >= 24.0 && temp <= 28.0) return 100;
+  
+  float diff = (temp < 24.0) ? (24.0 - temp) : (temp - 28.0);
+  // Subtract 10 points per degree deviation from the optimal range
+  int score = round(100 - (diff * 10.0));
+  return constrain(score, 0, 100);
 }
 
 int scoreHumidity(float hum) {
   if (isnan(hum)) return 50;
   if (hum >= 40.0 && hum <= 60.0) return 100;
-  if (hum >= 30.0 && hum < 40.0)  return 75;
-  if (hum > 60.0 && hum <= 70.0)  return 75;
-  if (hum >= 20.0 && hum < 30.0)  return 50;
-  if (hum > 70.0 && hum <= 80.0)  return 50;
-  return 25;
+  
+  float diff = (hum < 40.0) ? (40.0 - hum) : (hum - 60.0);
+  // Subtract 2 points per 1% deviation (e.g. 50% off = -100 points)
+  int score = round(100 - (diff * 2.0));
+  return constrain(score, 0, 100);
 }
 
 int scoreLight(float lux) {
   if (lux >= 300.0 && lux <= 500.0) return 100;
-  if (lux >= 200.0 && lux < 300.0)  return 75;
-  if (lux > 500.0 && lux <= 750.0)  return 75;
-  if (lux >= 100.0 && lux < 200.0)  return 50;
-  if (lux > 750.0 && lux <= 1000.0) return 50;
-  return 25;
+  
+  float diff = (lux < 300.0) ? (300.0 - lux) : (lux - 500.0);
+  // Subtract 0.2 points per lux deviation 
+  // (e.g. 100 lux = -40 points, >1000 lux drops score fast)
+  int score = round(100 - (diff * 0.2));
+  return constrain(score, 0, 100);
 }
 
 int scoreNoise(int noise) {
   if (noise <= 2) return 100;
-  if (noise <= 4) return 75;
-  if (noise <= 6) return 50;
-  return 25;
+  // Subtract 10 points per noise unit above 2
+  int score = 100 - ((noise - 2) * 10);
+  return constrain(score, 0, 100);
 }
 
 void computeFocusSuitability() {
@@ -138,7 +139,9 @@ void computeFocusSuitability() {
   int normalizedNoise = constrain(map(noiseLevel, 0, 1023, 0, 10), 0, 10);
   int noiseScore = scoreNoise(normalizedNoise);
   
-  suitabilityScore = constrain((tempScore * 0.30) + (humScore * 0.15) + (lightScore * 0.30) + (noiseScore * 0.25), 0, 100);
+  // Weighted calculation for overall environment score
+  float rawScore = (tempScore * 0.35) + (humScore * 0.15) + (lightScore * 0.25) + (noiseScore * 0.25);
+  suitabilityScore = constrain((int)round(rawScore), 0, 100);
   
   if (suitabilityScore >= 85) suitabilityTier = "Excellent";
   else if (suitabilityScore >= 65) suitabilityTier = "Good";

@@ -179,7 +179,21 @@ export default function DevicePage() {
 	}, [deviceStatus?.lastSeen]);
 
 	const isDeviceOnline = deviceStatus?.online === true;
-	const displayEnvironment = (isSessionActive ? liveEnvironment : null) || deviceStatus?.lastEnvironment;
+	
+	let fallbackEnv = null;
+	if (envHistory.length > 0 && envHistory[0]?.Environment) {
+		const env = envHistory[0].Environment as any;
+		fallbackEnv = {
+			temperature: env.Temperature,
+			humidity: env.Humidity,
+			lightLevel: env.Light_Level,
+			noiseLevel: env.Noise_Level,
+			suitabilityScore: env.Suitability_Score,
+			focusSuitability: env.Focus_Suitability
+		};
+	}
+	
+	const displayEnvironment = (isSessionActive ? liveEnvironment : null) || deviceStatus?.lastEnvironment || fallbackEnv;
 
 	return (
 		<AppLayout>
@@ -263,7 +277,7 @@ export default function DevicePage() {
 
 					{/* Live Environment Monitor — Left 2/3 */}
 					<div className="lg:col-span-2 space-y-6">
-						{displayEnvironment && isDeviceOnline ? (
+						{displayEnvironment ? (
 							<>
 								{/* Suitability Score Hero */}
 								<div className={`rounded-2xl border p-8 text-center ${getScoreGlow(displayEnvironment.suitabilityScore)} border-neutral-800 bg-[#0a0a0a]`}>
@@ -298,7 +312,7 @@ export default function DevicePage() {
 											</div>
 											<span className="text-2xl font-light text-white">{displayEnvironment.temperature}°C</span>
 										</div>
-										<RangeBar value={displayEnvironment.temperature} min={10} max={38} optMin={20} optMax={24} unit="°" color="orange" />
+										<RangeBar value={displayEnvironment.temperature} min={10} max={38} optMin={24} optMax={28} unit="°" color="orange" />
 									</div>
 
 									{/* Humidity */}
