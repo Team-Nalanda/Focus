@@ -357,33 +357,35 @@ void updateDisplay() {
   display.clearDisplay();
   
   // Header
-  display.setCursor(10, 0); display.print("FocusFlow");
-  display.setCursor(90, 0); display.print(wifiConnected ? "V2_OK" : "OFFL");
-  display.drawLine(0, 10, 128, 10, WHITE);
+  display.setCursor(0, 0); 
+  display.println("FocusFlow");
+  display.println(wifiConnected ? "SYNCING..." : "OFFLINE");
+  display.drawLine(0, 18, 64, 18, WHITE);
   
   // Status Bar
-  display.setCursor(0, 13);
-  display.print(sessionActive ? "SESSION ACTIVE" : "Waiting for session");
-  display.drawLine(0, 22, 128, 22, WHITE);
+  display.setCursor(0, 22);
+  display.println(sessionActive ? "SESSION" : "WAITING");
+  display.println(sessionActive ? "ACTIVE" : "FOR SES");
+  display.drawLine(0, 42, 64, 42, WHITE);
   
   // Sensor Data
-  display.setCursor(0, 25);
-  display.print("T:"); display.print(currentTemp, 1); display.print("C  ");
-  display.print("H:"); display.print(currentHum, 0);  display.print("%");
+  display.setCursor(0, 46);
+  display.print("T: "); display.print(currentTemp, 1); display.println("C");
+  display.print("H: "); display.print(currentHum, 0);  display.println("%");
   
-  display.setCursor(0, 35);
-  display.print("L:"); display.print(currentLux, 0);  display.print("lx ");
-  display.print("N:"); display.print(constrain(map(noiseLevel, 0, 1023, 0, 10), 0, 10)); display.print("/10");
+  display.setCursor(0, 70);
+  display.print("L: "); display.print(currentLux, 0);  display.println("lx");
+  display.print("N: "); display.print(constrain(map(noiseLevel, 0, 1023, 0, 10), 0, 10)); display.println("/10");
   
   // Result
-  display.drawLine(0, 45, 128, 45, WHITE);
-  display.setCursor(0, 48);
+  display.drawLine(0, 95, 64, 95, WHITE);
+  display.setCursor(0, 100);
   if (sessionActive) {
-    display.print("Score: "); display.print(suitabilityScore); display.print("/100");
-    display.setCursor(0, 57); display.print("> "); display.print(suitabilityTier);
+    display.print("Scr: "); display.println(suitabilityScore);
+    display.print("> "); display.println(suitabilityTier);
   } else {
-    display.print("Device ID: ");
-    display.setCursor(0, 57); display.print(DEVICE_ID);
+    display.println("ID:");
+    display.println(DEVICE_ID);
   }
   display.display();
 }
@@ -406,6 +408,9 @@ void setup() {
   lightMeter.begin();
   
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setRotation(1); // Rotate 90 degrees left (portrait mode)
   
   FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, NUM_LEDS);
   FastLED.setBrightness(30);
