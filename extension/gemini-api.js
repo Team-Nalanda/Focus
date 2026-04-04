@@ -3,7 +3,8 @@ const STATIC_PRODUCTIVE = ['github.com', 'stackoverflow.com', 'localhost', 'docs
 
 const GeminiHelper = {
     _apiKey: "AIzaSyBchvpvM6w_Z49IHwhNmHzXXRIJeXm1XTA",
-    _model: "gemma-4-31b-it",
+    _model: "gemini-2.5-flash-lite",
+    _timeoutMs: 8000, // 8s timeout — gemini-2.5-flash-lite is fast, this is generous
 
     async init() {
         return Promise.resolve(true);
@@ -15,16 +16,23 @@ const GeminiHelper = {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this._model}:generateContent?key=${this._apiKey}`;
 
         try {
-            const response = await fetch(endpoint, {
+            // Race the fetch against a timeout so we never block indefinitely
+            const fetchPromise = fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }]
                 })
             });
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Gemini timeout')), this._timeoutMs)
+            );
+
+            const response = await Promise.race([fetchPromise, timeoutPromise]);
 
             if (!response.ok) {
-                console.warn('Gemini AI Issue: Switching to Safety Mode.');
+                const errBody = await response.text().catch(() => 'no body');
+                console.warn(`Gemini AI Error ${response.status}: ${errBody}`);
                 return null;
             }
 
@@ -35,7 +43,7 @@ const GeminiHelper = {
             // Clean markdown blocks
             return text.replace(/```json/g, '').replace(/```/g, '').trim();
         } catch (err) {
-            console.error('Gemini AI Connectivity Error:', err);
+            console.warn('Gemini AI Connectivity/Timeout:', err.message);
             return null;
         }
     },
@@ -43,7 +51,7 @@ const GeminiHelper = {
     async analyzeTaskDuration(taskDescription) {
         const prompt = `Task: "${taskDescription}". Suggest duration (25, 50, or 90 mins). Return ONLY JSON: {"duration": 25, "tip": "contextual tip"}`;
         const responseText = await this._callAPI(prompt);
-        
+
         if (!responseText) {
             return { duration: 25, tip: "Let's focus on your task for a standard 25-minute sprint!" };
         }
@@ -74,7 +82,7 @@ const GeminiHelper = {
         // 2. Try the AI
         const prompt = `Goal: "${taskName}". URL: "${currentUrl}". Is it helpful or distracting? Return ONLY JSON: {"isDistraction": true_or_false, "nudgeMsg": "nudge if true"}`;
         const responseText = await this._callAPI(prompt);
-        
+
         if (!responseText) {
             return { isDistraction: false, nudgeMsg: "" };
         }
