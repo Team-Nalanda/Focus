@@ -77,7 +77,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             endTime: message.endTime,
             firestoreSessionId: sessionId
         });
-    } else if (message.action === "SESSION_ENDED" || message.action === "SESSION_PAUSED") {
+    } else if (message.action === "SESSION_ENDED") {
         console.log("Session stopped.");
         syncLiveStatus(false);
         
@@ -89,11 +89,12 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 await FirebaseHelper.completeSession(currentUid, data.firestoreSessionId);
                 
                 // Clear the session ID from storage after completion so next session starts fresh
-                if (message.action === "SESSION_ENDED") {
-                    chrome.storage.local.remove(['firestoreSessionId', 'sessionActive', 'currentTask']);
-                }
+                chrome.storage.local.remove(['firestoreSessionId', 'sessionActive', 'currentTask']);
             }
         });
+    } else if (message.action === "SESSION_PAUSED") {
+        console.log("Session paused.");
+        syncLiveStatus(false);
     } else if (message.action === "SESSION_RESUMED") {
         syncLiveStatus(true, { endTime: message.endTime });
     }
@@ -117,8 +118,8 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         safeSendMessage({ action: 'SESSION_STARTED_REMOTE', sessionId: message.sessionId });
     } else if (message.action === 'SESSION_STOP') {
         console.log('Session stopped from website. Purging local state.');
-        chrome.storage.local.clear(() => {
-            console.log('Local storage cleared.');
+        chrome.storage.local.remove(['firestoreSessionId', 'sessionActive', 'currentTask', 'sessionEndTime', 'sessionStartTime', 'aiTip', 'aiReason', 'aiDuration', 'isPaused', 'pausedRemainingSeconds'], () => {
+            console.log('Local session state cleared.');
             safeSendMessage({ action: 'SESSION_STOPPED_REMOTE' });
         });
     }
@@ -177,53 +178,51 @@ async function handleActivityChange(tabId) {
 
             console.log(`Tracking change to: ${title}`);
 
+            // A. Update RTDB Live State (Dashboard Top Monitor) immediately
+            await FirebaseHelper.updateLiveSession(currentUid, {
+                currentApp: { name: title, startTime: Date.now() }
+            });
+
             // ── STEP 1: Check static rules immediately (no AI needed) ──
             const staticDistraction = isStaticDistraction(domain);
             const staticProductive = isStaticProductive(domain);
             const knownType = staticDistraction ? "Distracting" : (staticProductive ? "Productive" : null);
 
-            // ── STEP 2: Send data to Firebase RIGHT AWAY using known type or Neutral ──
             const sessionId = await getSessionIdFromStorage();
-            const immediateType = knownType || "Neutral";
 
-            // A. Update RTDB Live State (Dashboard Top Monitor)
-            await FirebaseHelper.updateLiveSession(currentUid, {
-                currentApp: { name: title, startTime: Date.now() }
-            });
+            const logToFirebase = async (type) => {
+                 await FirebaseHelper.pushLiveActivity(currentUid, title, type);
+                 await FirebaseHelper.logActivity(currentUid, {
+                     appName: title,
+                     type: type,
+                     sessionId: sessionId
+                 });
+            };
 
-            // B. Push to RTDB History (Dashboard Timeline)
-            await FirebaseHelper.pushLiveActivity(currentUid, title, immediateType);
-
-            // C. Permanent Firestore Log — also immediate
-            await FirebaseHelper.logActivity(currentUid, {
-                appName: title,
-                type: immediateType,
-                sessionId: sessionId
-            });
-
-            // ── STEP 3: If it's a known static distraction, nudge immediately ──
-            if (staticDistraction) {
-                console.log("Static distraction detected! Injecting nudge...");
-                injectNudge(tabId, "This site is a known distraction. Time to refocus!");
-            }
-
-            // ── STEP 4: For unknown sites, run AI check in the background (non-blocking) ──
-            if (knownType === null) {
+            // ── STEP 2: Handle based on known or unknown type ──
+            if (knownType !== null) {
+                if (staticDistraction) {
+                    console.log("Static distraction detected! Injecting nudge...");
+                    injectNudge(tabId, "This site is a known distraction. Time to refocus!");
+                }
+                logToFirebase(knownType);
+            } else {
+                // ── For unknown sites, run AI check ──
                 GeminiHelper.determineRelevance(data.currentTask, tab.url).then((evaluation) => {
-                    if (!evaluation) return;
+                    if (!evaluation) {
+                        logToFirebase("Neutral");
+                        return;
+                    }
                     if (evaluation.isDistraction) {
                         console.log("AI distraction detected! Injecting nudge...");
                         injectNudge(tabId, evaluation.nudgeMsg || "Focus seems to be wandering. Time to get back to work?");
-                        // Update logs with the AI-refined type
-                        FirebaseHelper.pushLiveActivity(currentUid, title, "Distracting").catch(() => { });
-                        FirebaseHelper.logActivity(currentUid, {
-                            appName: title,
-                            type: "Distracting",
-                            sessionId: sessionId
-                        }).catch(() => { });
+                        logToFirebase("Distracting");
+                    } else {
+                        logToFirebase("Productive");
                     }
                 }).catch((err) => {
                     console.warn("AI check failed (non-critical):", err.message);
+                    logToFirebase("Neutral");
                 });
             }
 

@@ -8,6 +8,7 @@ import {
   Alert,
   Dimensions,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/components/AuthProvider';
@@ -21,11 +22,7 @@ import { analyzeSessionActivity, getLiveFocusTip } from '@/lib/aiService';
 import NudgeOverlay from '@/components/NudgeOverlay';
 import Svg, { Circle } from 'react-native-svg';
 
-const { width } = Dimensions.get('window');
-const TIMER_SIZE = width * 0.7;
 const STROKE_WIDTH = 12;
-const RADIUS = (TIMER_SIZE - STROKE_WIDTH) / 2;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export default function ActivityScreen() {
   const { user } = useAuth();
@@ -40,6 +37,12 @@ export default function ActivityScreen() {
 
   const tracker = useAppTracker(user?.uid);
   
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const TIMER_SIZE = isLandscape ? height * 0.4 : width * 0.7;
+  const RADIUS = (TIMER_SIZE - STROKE_WIDTH) / 2;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+
   // Animation value for breathing ring
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -220,7 +223,7 @@ export default function ActivityScreen() {
             </View>
 
             {/* Giant Circular Timer */}
-            <View style={styles.timerContainer}>
+            <View style={[styles.timerContainer, isLandscape && { marginTop: 16 }]}>
               <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
                 <Svg width={TIMER_SIZE} height={TIMER_SIZE} viewBox={`0 0 ${TIMER_SIZE} ${TIMER_SIZE}`}>
                   {/* Background Circle */}
@@ -252,7 +255,9 @@ export default function ActivityScreen() {
               </Animated.View>
 
               <View style={styles.timerTextContainer}>
-                <Text style={styles.timerDisplay}>{elapsedTime}</Text>
+                <Text style={[styles.timerDisplay, { fontSize: isLandscape ? 36 : 56 }]}>
+                  {elapsedTime}
+                </Text>
               </View>
             </View>
 
@@ -311,7 +316,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#050505', // Deep pitch black for Zen Mode
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     padding: Spacing.xl,
     paddingTop: 60,
   },
@@ -380,7 +385,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   timerDisplay: {
-    fontSize: 56,
     fontWeight: '200',
     fontVariant: ['tabular-nums'],
     color: Colors.text,

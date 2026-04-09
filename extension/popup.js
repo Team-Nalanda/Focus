@@ -126,13 +126,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Restore active session ──
-    chrome.storage.local.get(['sessionActive', 'currentTask', 'sessionEndTime', 'totalSeconds', 'aiTip', 'aiReason', 'aiDuration'], (data) => {
+    chrome.storage.local.get(['sessionActive', 'currentTask', 'sessionEndTime', 'totalSeconds', 'aiTip', 'aiReason', 'aiDuration', 'isPaused', 'pausedRemainingSeconds'], (data) => {
         if (data.sessionActive) {
             totalSeconds = data.totalSeconds || 25 * 60;
             const now = Date.now();
-            const end = data.sessionEndTime;
-            if (end > now) {
-                remainingSeconds = Math.floor((end - now) / 1000);
+            
+            if (data.isPaused) {
+                isPaused = true;
+                remainingSeconds = data.pausedRemainingSeconds;
                 activeTaskDisplay.textContent = data.currentTask || 'Focus Session';
                 if (data.aiTip) aiTipDisplay.textContent = data.aiTip;
                 if (data.aiReason) {
@@ -140,11 +141,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     aiReasonDisplay.textContent = data.aiReason;
                     aiDurationBadge.textContent = `⏱ AI chose ${data.aiDuration || Math.round(data.totalSeconds / 60)} min`;
                 }
-                setActiveState(true);
+                updateTimerDisplay(); // Just show time without starting interval
+                pauseIconContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+                setActiveState(false);
                 showSessionView();
-                startTimerInterval();
             } else {
-                finishSession();
+                const end = data.sessionEndTime;
+                if (end > now) {
+                    remainingSeconds = Math.floor((end - now) / 1000);
+                    activeTaskDisplay.textContent = data.currentTask || 'Focus Session';
+                    if (data.aiTip) aiTipDisplay.textContent = data.aiTip;
+                    if (data.aiReason) {
+                        aiReasonContainer.style.display = 'block';
+                        aiReasonDisplay.textContent = data.aiReason;
+                        aiDurationBadge.textContent = `⏱ AI chose ${data.aiDuration || Math.round(data.totalSeconds / 60)} min`;
+                    }
+                    setActiveState(true);
+                    showSessionView();
+                    startTimerInterval();
+                } else {
+                    finishSession();
+                }
             }
         }
     });
@@ -171,7 +188,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const isAiTime = aiDecideTime.checked;
-            const minutes = isAiTime ? aiDuration : (parseInt(minutesInput.value) + (parseInt(hoursInput.value) * 60) || 25);
+            const h = parseInt(hoursInput.value) || 0;
+            const m = parseInt(minutesInput.value) || 0;
+            const minutes = isAiTime ? aiDuration : ((h * 60 + m) || 25);
             totalSeconds = minutes * 60;
             remainingSeconds = totalSeconds;
             activeTaskDisplay.textContent = task;
@@ -197,7 +216,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 sessionEndTime: sessionEndTime,
                 aiTip: tip ? `"${tip}"` : '',
                 aiReason: isAiTime ? aiReason : '',
-                aiDuration: isAiTime ? minutes : null
+                aiDuration: isAiTime ? minutes : null,
+                isPaused: false
             }, () => {
                 setActiveState(true);
                 showSessionView();
@@ -222,9 +242,10 @@ document.addEventListener('DOMContentLoaded', () => {
             pauseIconContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
             chrome.runtime.sendMessage({ action: "SESSION_PAUSED" });
             setActiveState(false);
+            chrome.storage.local.set({ isPaused: true, pausedRemainingSeconds: remainingSeconds });
         } else {
             const newEndTime = Date.now() + (remainingSeconds * 1000);
-            chrome.storage.local.set({ sessionEndTime: newEndTime });
+            chrome.storage.local.set({ sessionEndTime: newEndTime, isPaused: false });
             startTimerInterval();
             pauseIconContainer.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="icon-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`;
             setActiveState(true);
@@ -256,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function finishSession() {
         clearInterval(timerInterval);
-        chrome.storage.local.set({ sessionActive: false, currentTask: null, sessionEndTime: null, sessionStartTime: null, aiTip: null, aiReason: null, aiDuration: null });
+        chrome.storage.local.remove(['sessionActive', 'currentTask', 'sessionEndTime', 'sessionStartTime', 'aiTip', 'aiReason', 'aiDuration', 'isPaused', 'pausedRemainingSeconds']);
         chrome.runtime.sendMessage({ action: "SESSION_ENDED" });
         isPaused = false;
         setActiveState(false);
